@@ -1,0 +1,1425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Staatmaker — SA Tax Spending Organiser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --paper:#EAEDE5;
+    --paper-alt:#E0E3D8;
+    --card:#F4F5EF;
+    --ink:#1F2A24;
+    --ink-soft:#54604F;
+    --ink-faint:#8B9384;
+    --gold:#B5842A;
+    --gold-dark:#8C6A20;
+    --teal:#2E6E62;
+    --rust:#B5533C;
+    --line:#CBC6AE;
+    --line-soft:#DAD6C4;
+    --radius:2px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'IBM Plex Sans',sans-serif;font-size:14px;line-height:1.5;}
+  h1,h2,h3{font-family:'Zilla Slab',serif;margin:0;letter-spacing:.2px;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  #app{max-width:1180px;margin:0 auto;padding:28px 20px 60px;}
+
+  /* HEADER */
+  .masthead{display:flex;align-items:flex-end;justify-content:space-between;border-bottom:3px solid var(--ink);padding-bottom:14px;margin-bottom:22px;flex-wrap:wrap;gap:10px;}
+  .masthead .title-block h1{font-size:30px;font-weight:700;}
+  .masthead .title-block .kicker{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:var(--gold-dark);margin-bottom:4px;}
+  .masthead .meta{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);text-align:right;}
+
+  .disclaimer{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--gold);padding:10px 14px;font-size:12.5px;color:var(--ink-soft);margin-bottom:22px;border-radius:var(--radius);}
+  .disclaimer b{color:var(--ink);}
+
+  /* LAYOUT */
+  .layout{display:grid;grid-template-columns:280px 1fr;gap:22px;align-items:start;}
+  @media (max-width:820px){.layout{grid-template-columns:1fr;}}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:16px;}
+  .panel h3{font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:var(--ink-soft);margin-bottom:12px;}
+
+  .dropzone{border:2px dashed var(--line);border-radius:var(--radius);padding:22px 12px;text-align:center;cursor:pointer;transition:border-color .15s, background .15s;background:var(--paper-alt);}
+  .dropzone:hover, .dropzone.drag{border-color:var(--gold);background:#EEE9D6;}
+  .dropzone .icon{font-size:22px;margin-bottom:6px;}
+  .dropzone p{margin:0;font-size:12.5px;color:var(--ink-soft);}
+  .dropzone input{display:none;}
+
+  .bank-select{margin-top:10px;}
+  .bank-select select, .bank-select input[type=text]{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:var(--radius);font-family:inherit;font-size:13px;background:#fff;}
+
+  .file-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;}
+  .file-row:last-child{border-bottom:none;}
+  .file-row .tag{font-family:'IBM Plex Mono',monospace;font-size:10.5px;background:var(--paper-alt);padding:2px 6px;border-radius:2px;color:var(--ink-soft);}
+  .file-row button{background:none;border:none;color:var(--rust);cursor:pointer;font-size:12px;}
+
+  button.btn{font-family:'IBM Plex Sans',sans-serif;background:var(--ink);color:var(--paper);border:none;padding:9px 16px;border-radius:var(--radius);font-size:13px;font-weight:500;cursor:pointer;}
+  button.btn:hover{background:#33413A;}
+  button.btn.secondary{background:transparent;color:var(--ink);border:1px solid var(--ink);}
+  button.btn.secondary:hover{background:var(--ink);color:var(--paper);}
+  button.btn.gold{background:var(--gold);color:#fff;}
+  button.btn.gold:hover{background:var(--gold-dark);}
+  button.btn:disabled{opacity:.4;cursor:not-allowed;}
+  button.btn.small{padding:5px 10px;font-size:11.5px;}
+
+  /* TABS */
+  .tabs{display:flex;gap:2px;border-bottom:2px solid var(--ink);margin-bottom:16px;}
+  .tab{padding:9px 16px;font-size:13px;font-weight:500;cursor:pointer;color:var(--ink-soft);border:1px solid transparent;border-bottom:none;}
+  .tab.active{color:var(--ink);background:var(--card);border-color:var(--line);border-radius:2px 2px 0 0;position:relative;top:2px;}
+  .view{display:none;}
+  .view.active{display:block;}
+
+  /* SUMMARY CARDS */
+  .stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px;}
+  .stat-card{background:var(--card);border:1px solid var(--line);padding:14px;border-radius:var(--radius);}
+  .stat-card .label{font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--ink-soft);margin-bottom:6px;}
+  .stat-card .value{font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:500;}
+  .stat-card.positive .value{color:var(--teal);}
+  .stat-card.negative .value{color:var(--rust);}
+
+  /* TABLE */
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--ink-soft);padding:8px 10px;border-bottom:2px solid var(--ink);background:var(--paper-alt);position:sticky;top:0;}
+  td{padding:7px 10px;border-bottom:1px solid var(--line-soft);font-size:12.5px;vertical-align:middle;}
+  tr:hover td{background:#F9F8F1;}
+  td.amount{font-family:'IBM Plex Mono',monospace;text-align:right;white-space:nowrap;}
+  td.amount.neg{color:var(--rust);}
+  td.amount.pos{color:var(--teal);}
+  .table-wrap{max-height:520px;overflow:auto;border:1px solid var(--line);}
+  select.cat-select{font-family:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--line);border-radius:2px;background:#fff;max-width:180px;}
+
+  .stamp{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:2px dashed var(--gold);border-radius:50%;color:var(--gold-dark);font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;transform:rotate(-8deg);mix-blend-mode:multiply;flex-shrink:0;}
+  .stamp[title]{cursor:help;}
+
+  /* RECEIPT-STYLE TAX SUMMARY */
+  .receipt{background:#fff;border:1px solid var(--line);position:relative;padding:24px 26px 20px;font-family:'IBM Plex Mono',monospace;max-width:480px;}
+  .receipt:before, .receipt:after{content:"";position:absolute;left:0;right:0;height:10px;background:
+    radial-gradient(circle at 8px 5px, transparent 5px, #fff 5.5px) repeat-x;
+    background-size:16px 10px;}
+  .receipt:before{top:-5px;}
+  .receipt:after{bottom:-5px;transform:rotate(180deg);}
+  .receipt h4{font-family:'Zilla Slab',serif;font-size:16px;text-align:center;margin-bottom:2px;}
+  .receipt .sub{text-align:center;font-size:10.5px;color:var(--ink-soft);margin-bottom:14px;letter-spacing:.5px;}
+  .receipt .line{display:flex;justify-content:space-between;font-size:12.5px;padding:4px 0;border-bottom:1px dashed var(--line);}
+  .receipt .line.total{border-bottom:none;border-top:2px solid var(--ink);margin-top:6px;padding-top:10px;font-weight:700;font-size:14px;}
+  .receipt .note{font-size:10px;color:var(--ink-soft);margin-top:14px;line-height:1.5;}
+
+  .empty{padding:40px 20px;text-align:center;color:var(--ink-soft);}
+  .empty .icon{font-size:30px;margin-bottom:10px;}
+
+  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;}
+  .search{padding:7px 10px;border:1px solid var(--line);border-radius:2px;font-family:inherit;font-size:12.5px;min-width:200px;}
+
+  .rules-list{max-height:260px;overflow:auto;font-size:12px;}
+  .rule-row{display:flex;gap:6px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line-soft);}
+  .rule-row .kw{font-family:'IBM Plex Mono',monospace;background:var(--paper-alt);padding:1px 6px;border-radius:2px;}
+  .rule-row .arrow{color:var(--ink-faint);}
+  .add-rule{display:flex;gap:6px;margin-top:10px;}
+  .add-rule input{flex:1;padding:6px 7px;font-size:12px;border:1px solid var(--line);border-radius:2px;}
+
+  .modal-backdrop{position:fixed;inset:0;background:rgba(31,42,36,.5);display:flex;align-items:center;justify-content:center;z-index:50;}
+  .modal{background:#fff;border-radius:2px;padding:22px;max-width:480px;width:92%;max-height:85vh;overflow:auto;}
+  .modal h3{margin-bottom:12px;}
+  .map-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;align-items:center;font-size:12.5px;}
+  .map-row select{padding:5px;font-size:12px;}
+
+  .chart-wrap{background:var(--card);border:1px solid var(--line);padding:16px;margin-bottom:18px;}
+  .footer-note{margin-top:26px;font-size:11.5px;color:var(--ink-soft);text-align:center;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="masthead">
+    <div class="title-block">
+      <div class="kicker">Personal Records · Individual Return</div>
+      <h1>Staatmaker</h1>
+    </div>
+    <div class="meta" id="tax-year-label"></div>
+  </div>
+
+  <div class="disclaimer">
+    <b>What this is:</b> a private, in-browser tool that reads your own bank statements (CSV or PDF), sorts spending into categories, and totals up items commonly relevant to a South African individual tax return (retirement annuity, medical aid, donations, income protection). <b>What it isn't:</b> tax advice or a SARS-ready submission — always check totals against your actual certificates (IRP5, medical aid tax certificate, RA contribution certificate, S18A receipts) before you file. Files are parsed on your device and saved only in this browser's own storage — nothing is uploaded anywhere else. Since that storage is tied to this browser (and can be cleared by clearing site data), download a backup from the Data panel regularly.
+  </div>
+
+  <div class="layout">
+    <!-- SIDEBAR -->
+    <div>
+      <div class="panel">
+        <h3>Import statements</h3>
+        <div class="bank-select">
+          <select id="bank-picker">
+            <option>FNB</option>
+            <option>Standard Bank</option>
+            <option>Absa</option>
+            <option>Nedbank</option>
+            <option>Capitec</option>
+            <option>Bank Zero</option>
+            <option>TymeBank</option>
+            <option>Discovery Bank</option>
+            <option>Other / Not listed</option>
+          </select>
+        </div>
+        <div class="dropzone" id="dropzone" style="margin-top:10px;">
+          <div class="icon">📄</div>
+          <p><b>Drop CSV or PDF statements here</b><br>or click to browse — tag the bank above first</p>
+          <input type="file" id="file-input" multiple accept=".csv,.pdf" />
+        </div>
+        <div id="file-list" style="margin-top:10px;"></div>
+        <p style="font-size:11px;color:var(--ink-faint);margin-top:8px;">Password-protected PDFs are fine — you'll be prompted for the password during import (usually your ID number or account/client number).</p>
+      </div>
+
+      <div class="panel">
+        <h3>Categorisation rules</h3>
+        <div class="rules-list" id="rules-list"></div>
+        <div class="add-rule">
+          <input type="text" id="rule-kw" placeholder="keyword e.g. WOOLWORTHS" />
+          <select id="rule-cat"></select>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:6px;">
+          <label style="font-size:11.5px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="rule-tax"/> tax-relevant</label>
+        </div>
+        <button class="btn small" style="margin-top:8px;width:100%;" onclick="addRule()">Add rule</button>
+      </div>
+
+      <div class="panel">
+        <h3>Data</h3>
+        <div id="save-indicator" style="font-size:11px;color:var(--ink-soft);margin-bottom:10px;">Loading…</div>
+        <button class="btn secondary small" style="width:100%;margin-bottom:8px;" onclick="downloadBackup()">Download backup (.json)</button>
+        <input type="file" id="restore-input" accept=".json" style="display:none;" onchange="if(this.files[0]) restoreBackup(this.files[0]); this.value='';">
+        <button class="btn secondary small" style="width:100%;margin-bottom:8px;" onclick="document.getElementById('restore-input').click()">Restore from backup</button>
+        <button class="btn secondary small" style="width:100%;margin-bottom:8px;" onclick="reapplyRules()">Re-run categorisation</button>
+        <button class="btn secondary small" style="width:100%;color:var(--rust);border-color:var(--rust);" onclick="clearAllData()">Clear all saved data</button>
+        <p style="font-size:10.5px;color:var(--ink-faint);margin:8px 0 0;">Autosave writes to this browser's storage, which is tied to this browser/device and can be cleared by clearing site data. Download a backup periodically, especially before clearing your browser data or switching machines.</p>
+      </div>
+    </div>
+
+    <!-- MAIN -->
+    <div>
+      <div class="stat-row" id="stat-row"></div>
+
+      <div class="tabs">
+        <div class="tab active" data-view="transactions">Transactions</div>
+        <div class="tab" data-view="categories">Spending by category</div>
+        <div class="tab" data-view="tax">Tax summary</div>
+        <div class="tab" data-view="rental">Rental income</div>
+        <div class="tab" data-view="homeoffice">Work from home</div>
+        <div class="tab" data-view="projection">Tax projection</div>
+      </div>
+
+      <div class="view active" id="view-transactions">
+        <div class="toolbar">
+          <input type="text" class="search" id="search-box" placeholder="Search description…" oninput="renderTransactions()"/>
+          <div>
+            <button class="btn secondary small" onclick="addManualTxn()">+ Add row manually</button>
+            <button class="btn secondary small" onclick="exportXLSX()">Export spreadsheet (.xlsx)</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Description</th><th>Bank</th><th>Category</th><th style="text-align:right;">Amount (R)</th><th></th><th></th></tr></thead>
+            <tbody id="txn-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="view" id="view-categories">
+        <div class="chart-wrap"><canvas id="cat-chart" height="110"></canvas></div>
+        <div class="table-wrap" style="max-height:340px;">
+          <table>
+            <thead><tr><th>Category</th><th style="text-align:right;">Total (R)</th><th style="text-align:right;">Transactions</th></tr></thead>
+            <tbody id="cat-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="view" id="view-tax">
+        <div id="tax-receipt"></div>
+      </div>
+
+      <div class="view" id="view-rental">
+        <div class="panel" style="margin-bottom:16px;">
+          <h3>How this works</h3>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0;">Tag rental deposits as <b>Rental Income</b> and property-related costs using the <b>Rental – …</b> categories (Levies, Rates &amp; Taxes, Insurance, Repairs &amp; Maintenance, Agent Commission, Bond Interest) in the Transactions tab. This section totals them into the net rental result you declare on your return.</p>
+        </div>
+        <div id="rental-receipt"></div>
+      </div>
+
+      <div class="view" id="view-homeoffice">
+        <div class="panel" id="ho-checklist" style="margin-bottom:16px;"></div>
+        <div class="panel" style="margin-bottom:16px;">
+          <h3>Floor area</h3>
+          <div class="map-row">
+            <label>Home office area (m²)</label>
+            <input type="number" id="ho-office-area" min="0" step="0.1" style="padding:6px;border:1px solid var(--line);border-radius:2px;" oninput="saveHomeOfficeInputs(); computeHomeOfficeResult();">
+          </div>
+          <div class="map-row">
+            <label>Total home area (m²)</label>
+            <input type="number" id="ho-home-area" min="0" step="0.1" style="padding:6px;border:1px solid var(--line);border-radius:2px;" oninput="saveHomeOfficeInputs(); computeHomeOfficeResult();">
+          </div>
+          <div style="font-size:12.5px;color:var(--ink-soft);">Work-use percentage: <b id="ho-pct" class="mono">0%</b></div>
+        </div>
+        <div class="panel" style="margin-bottom:16px;">
+          <h3>Apportionable household costs</h3>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin-top:-6px;">Pre-filled from your categorised transactions where available — edit any figure, and replace a bond instalment with the <u>interest portion only</u> if you own rather than rent.</p>
+          <div id="ho-costs"></div>
+        </div>
+        <div class="panel" style="margin-bottom:16px;">
+          <h3>Office equipment (not apportioned)</h3>
+          <div class="map-row">
+            <label>Wear &amp; tear on equipment used solely for work (R)</label>
+            <input type="number" id="ho-equipment" min="0" step="0.01" style="padding:6px;border:1px solid var(--line);border-radius:2px;" oninput="saveHomeOfficeInputs(); computeHomeOfficeResult();">
+          </div>
+        </div>
+        <div id="ho-result"></div>
+      </div>
+
+      <div class="view" id="view-projection">
+        <div class="panel" style="margin-bottom:16px;">
+          <h3>Tax year</h3>
+          <div class="map-row">
+            <label>Projecting for</label>
+            <select id="proj-year-select" onchange="saveProjectionSettings(); renderProjection();"></select>
+          </div>
+          <div id="proj-progress" style="font-size:12.5px;color:var(--ink-soft);margin-top:6px;"></div>
+        </div>
+        <div class="panel" style="margin-bottom:16px;">
+          <h3>Optional: for cap comparisons</h3>
+          <p style="font-size:11.5px;color:var(--ink-soft);margin-top:-6px;">The retirement annuity and donation deductions are capped as a percentage of taxable income. Add an estimate to see how your projected spending compares — leave blank to just see projected totals.</p>
+          <div class="map-row">
+            <label>Estimated annual taxable income (R)</label>
+            <input type="number" id="proj-income" min="0" step="1000" style="padding:6px;border:1px solid var(--line);border-radius:2px;" oninput="saveProjectionSettings(); renderProjection();">
+          </div>
+          <div class="map-row">
+            <label>Age</label>
+            <select id="proj-age" onchange="saveProjectionSettings(); renderProjection();" style="padding:6px;border:1px solid var(--line);border-radius:2px;">
+              <option value="under65">Under 65</option>
+              <option value="65to74">65 – 74</option>
+              <option value="75plus">75 and over</option>
+            </select>
+          </div>
+          <div class="map-row">
+            <label>People on your medical scheme (incl. you)</label>
+            <input type="number" id="proj-medical-members" min="0" step="1" style="padding:6px;border:1px solid var(--line);border-radius:2px;" oninput="saveProjectionSettings(); renderProjection();">
+          </div>
+        </div>
+        <div id="proj-table"></div>
+        <div id="proj-tax-estimate" style="margin-top:16px;"></div>
+        <div id="proj-rental" style="margin-top:16px;"></div>
+        <div class="disclaimer" style="margin-top:16px;">Projections simply scale up what you've spent so far this tax year at the same daily rate — they don't know about bonuses, once-off donations, or spending that isn't evenly spread across the year, so treat them as a rough steer rather than a forecast. RA and donation caps shown use the standard SARS percentages; your actual limit also depends on how "taxable income" or "remuneration" is defined in your case, which a tax practitioner can confirm.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="footer-note">Staatmaker runs entirely in this browser tab. Nothing is sent to a server. Built for organising records — not a substitute for a registered tax practitioner.</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ---------------- STATE ---------------- */
+let transactions = [];   // {id, date, desc, bank, amount, category, taxLabel}
+let rules = [];
+let files = [];
+let catChartInstance = null;
+
+const DEFAULT_CATEGORIES = [
+  'Income','Groceries','Fuel & Transport','Eating Out','Rent / Bond','Utilities',
+  'Insurance (Short-term)','Subscriptions & Entertainment','Shopping','Cash Withdrawal',
+  'Bank Fees','Interest & Bank Charges','Transfers','Investments','Medical Aid Contributions','Medical - Other','Retirement Annuity',
+  'Income Protection','Donations',
+  'Rental Income','Rental - Levies','Rental - Rates & Taxes','Rental - Insurance',
+  'Rental - Repairs & Maintenance','Rental - Agent Commission','Rental - Bond Interest',
+  'Home - Rates & Taxes','Home - Insurance','Home - Repairs & Maintenance',
+  'Uncategorised'
+];
+
+const TAX_LABELS = {
+  'Medical Aid Contributions':'Medical Aid Contributions',
+  'Medical - Other':'Additional Medical Expenses',
+  'Retirement Annuity':'Retirement Annuity Contributions',
+  'Income Protection':'Income Protection Premiums',
+  'Donations':'Donations (Section 18A)'
+};
+
+const RENTAL_EXPENSE_CATEGORIES = [
+  'Rental - Levies','Rental - Rates & Taxes','Rental - Insurance',
+  'Rental - Repairs & Maintenance','Rental - Agent Commission','Rental - Bond Interest'
+];
+
+// category -> home office cost field key, used to prefill the apportionment inputs
+const HOME_OFFICE_SOURCE_CATEGORIES = {
+  'Rent / Bond': 'occupancy',
+  'Home - Rates & Taxes': 'rates',
+  'Utilities': 'utilities',
+  'Home - Insurance': 'insurance',
+  'Home - Repairs & Maintenance': 'repairs'
+};
+const HOME_OFFICE_FIELDS = [
+  {key:'occupancy', label:'Rent paid, or bond interest portion only (R)'},
+  {key:'rates', label:'Rates & taxes (R)'},
+  {key:'utilities', label:'Electricity / utilities (R)'},
+  {key:'insurance', label:'Home insurance (R)'},
+  {key:'repairs', label:'Repairs & maintenance (R)'}
+];
+
+const DEFAULT_RULES = [
+  ['SALARY','Income',false],['PAYROLL','Income',false],['SARS REFUND','Income',false],
+  ['WOOLWORTHS','Groceries',false],['CHECKERS','Groceries',false],['PICK N PAY','Groceries',false],
+  ['PNP ','Groceries',false],['SPAR','Groceries',false],['SHOPRITE','Groceries',false],['FOOD LOVER','Groceries',false],
+  ['ENGEN','Fuel & Transport',false],['SASOL','Fuel & Transport',false],['SHELL','Fuel & Transport',false],
+  ['CALTEX','Fuel & Transport',false],['UBER','Fuel & Transport',false],['BOLT','Fuel & Transport',false],
+  ['GAUTRAIN','Fuel & Transport',false],['TOLL','Fuel & Transport',false],
+  ['DISCOVERY HEALTH','Medical Aid Contributions',true],['DISCOVERY MEDICAL','Medical Aid Contributions',true],
+  ['BONITAS','Medical Aid Contributions',true],['MOMENTUM HEALTH','Medical Aid Contributions',true],
+  ['MEDSHIELD','Medical Aid Contributions',true],['BESTMED','Medical Aid Contributions',true],
+  ['FEDHEALTH','Medical Aid Contributions',true],['GEMS MEDICAL','Medical Aid Contributions',true],
+  ['PHARMACY','Medical - Other',true],['CLICKS','Medical - Other',true],['DISCHEM','Medical - Other',true],
+  ['DIS-CHEM','Medical - Other',true],['DOCTOR','Medical - Other',true],['DENTIST','Medical - Other',true],
+  ['OPTOM','Medical - Other',true],['SPECSAVERS','Medical - Other',true],
+  ['ALLAN GRAY','Retirement Annuity',true],['10X','Retirement Annuity',true],['OLD MUTUAL','Retirement Annuity',true],
+  ['SANLAM','Retirement Annuity',true],['LIBERTY','Retirement Annuity',true],['GLACIER','Retirement Annuity',true],
+  ['MOMENTUM RA','Retirement Annuity',true],['MOMENTUM WEALTH','Retirement Annuity',true],
+  ['INCOME PROTECTOR','Income Protection',true],['DISABILITY COVER','Income Protection',true],
+  ['DONATION','Donations',true],['GIFT OF THE GIVERS','Donations',true],['CHOC CHILDHOOD','Donations',true],
+  ['SOS CHILDREN','Donations',true],['GIVENGAIN','Donations',true],['BACKABUDDY','Donations',true],['SMILE FOUNDATION','Donations',true],
+  ['NETFLIX','Subscriptions & Entertainment',false],['SHOWMAX','Subscriptions & Entertainment',false],
+  ['SPOTIFY','Subscriptions & Entertainment',false],['DSTV','Subscriptions & Entertainment',false],
+  ['MULTICHOICE','Subscriptions & Entertainment',false],['APPLE.COM','Subscriptions & Entertainment',false],
+  ['RENT ','Rent / Bond',false],['BOND','Rent / Bond',false],['HOME LOAN','Rent / Bond',false],
+  ['ESKOM','Utilities',false],['MUNICIP','Utilities',false],['CITY OF','Utilities',false],
+  ['TELKOM','Utilities',false],['VODACOM','Utilities',false],['MTN','Utilities',false],['CELL C','Utilities',false],
+  ['RAIN ','Utilities',false],['FIBRE','Utilities',false],['WEBAFRICA','Utilities',false],
+  ['ATM WITHDRAWAL','Cash Withdrawal',false],['CASH WITHDRAWAL','Cash Withdrawal',false],['ATM CASH','Cash Withdrawal',false],
+  ['SERVICE FEE','Bank Fees',false],['ADMIN FEE','Bank Fees',false],['BANK CHARGE','Bank Fees',false],['MONTHLY FEE','Bank Fees',false],
+  ['OUTSURANCE','Insurance (Short-term)',false],['DISCOVERY INSURE','Insurance (Short-term)',false],['SANTAM','Insurance (Short-term)',false],['KING PRICE','Insurance (Short-term)',false],['INSURANCE','Insurance (Short-term)',false],
+  ['KFC','Eating Out',false],['MCDONALD','Eating Out',false],['NANDO','Eating Out',false],['STEERS','Eating Out',false],
+  ['UBER EATS','Eating Out',false],['MR D FOOD','Eating Out',false],['RESTAURANT','Eating Out',false],['CAFE','Eating Out',false],
+  ['TRANSFER','Transfers',false],['EFT ','Transfers',false],
+  // Afrikaans-language statements (e.g. Standard Bank current account) — specific merchants/terms first, generic catch-alls last
+  ['VERSEKERING','Insurance (Short-term)',false],['HOLLARD','Insurance (Short-term)',false],
+  ['DIENSOOREENKOMS','Subscriptions & Entertainment',false],
+  ['SAHL','Rent / Bond',false],
+  ['VALR','Investments',false],['CAPE CRYPTO','Investments',false],['LUNO','Investments',false],['EASYEQUITIES','Investments',false],
+  ['FOSCHINI','Shopping',false],['MARKHAMS','Shopping',false],['WOOLIES','Shopping',false],['TRUWORTHS','Shopping',false],
+  ['ZAPPER','Shopping',false],
+  ['OORTREKKINGS RENTE','Interest & Bank Charges',false],['OORSKRYDINGSRENTE','Interest & Bank Charges',false],
+  ['FOOI','Bank Fees',false],['DIENSGELD','Bank Fees',false],['GELDE ','Bank Fees',false],['KOSTE-ONBETAALDE','Bank Fees',false],
+  ['OORTREKKING','Interest & Bank Charges',false],
+  ['OORPLASING','Transfers',false],['DEBIETORDER','Transfers',false],['TJEKKAART','Shopping',false],
+  ['BETALING','Transfers',false],
+];
+
+/* ---------------- STORAGE ---------------- */
+// This runs standalone in the browser (not inside a Claude chat), so it saves straight to this
+// browser's own localStorage. Failures are surfaced in the UI rather than hidden, since silent
+// failure is exactly what caused data to vanish on refresh before.
+let lastSaveStatus = {ok:true, time:null};
+
+async function storeGet(key){
+  try{
+    return localStorage.getItem(key);
+  }catch(e){ console.error('Could not read from localStorage:', e); return null; }
+}
+
+async function storeSet(key, value){
+  try{
+    localStorage.setItem(key, value);
+    lastSaveStatus = {ok:true, time:new Date()};
+  }catch(e){
+    console.error('Could not save to localStorage:', e);
+    lastSaveStatus = {ok:false, time:new Date()};
+  }
+  updateSaveIndicator();
+}
+
+function updateSaveIndicator(){
+  const el = document.getElementById('save-indicator');
+  if(!el) return;
+  if(lastSaveStatus.ok){
+    el.textContent = `Saved to this browser · ${lastSaveStatus.time ? lastSaveStatus.time.toLocaleTimeString() : ''}`;
+    el.style.color = 'var(--ink-soft)';
+  }else{
+    el.textContent = `⚠ Save failed — this browser's storage may be full or disabled. Download a backup below now.`;
+    el.style.color = 'var(--rust)';
+  }
+}
+
+async function loadData(){
+  try{
+    const t = await storeGet('staatmaker:transactions');
+    transactions = t ? JSON.parse(t) : [];
+  }catch(e){ transactions = []; }
+  try{
+    const r = await storeGet('staatmaker:rules');
+    rules = r ? JSON.parse(r) : DEFAULT_RULES.map(([kw,cat,tax])=>({kw,cat,tax}));
+  }catch(e){ rules = DEFAULT_RULES.map(([kw,cat,tax])=>({kw,cat,tax})); }
+  try{
+    const f = await storeGet('staatmaker:files');
+    files = f ? JSON.parse(f) : [];
+  }catch(e){ files = []; }
+  await loadHomeOffice();
+  await loadProjectionSettings();
+}
+async function saveTransactions(){ await storeSet('staatmaker:transactions', JSON.stringify(transactions)); }
+async function saveRules(){ await storeSet('staatmaker:rules', JSON.stringify(rules)); }
+async function saveFiles(){ await storeSet('staatmaker:files', JSON.stringify(files)); }
+
+let homeOffice = {officeArea:'', homeArea:'', equipment:'', costs:{}, checklist:{}};
+let projectionSettings = {yearOffset:0, income:'', ageBand:'under65', medicalMembers:''};
+async function loadProjectionSettings(){
+  try{
+    const p = await storeGet('staatmaker:projection');
+    if(p) projectionSettings = Object.assign(projectionSettings, JSON.parse(p));
+  }catch(e){ /* no saved settings yet */ }
+}
+// Sourced SARS figures (verify against sars.gov.za before relying on them — these change every Budget Speech).
+// 2026 tax year: 1 Mar 2025 – 28 Feb 2026. 2027 tax year: 1 Mar 2026 – 28 Feb 2027 (adjusted 3.4% for inflation, Feb 2026 budget).
+const TAX_YEAR_TABLES = {
+  2026: {
+    brackets: [
+      {min:0, rate:0.18, base:0},
+      {min:237101, rate:0.26, base:42678},
+      {min:370501, rate:0.31, base:77362},
+      {min:512801, rate:0.36, base:121475},
+      {min:673001, rate:0.39, base:179147},
+      {min:857901, rate:0.41, base:251258},
+      {min:1817001, rate:0.45, base:644489}
+    ],
+    primaryRebate:17235, secondaryRebate:9444, tertiaryRebate:3145,
+    medicalMain:364, medicalAdditional:246, raCapRand:350000
+  },
+  2027: {
+    brackets: [
+      {min:0, rate:0.18, base:0},
+      {min:245101, rate:0.26, base:44118},
+      {min:383101, rate:0.31, base:79998},
+      {min:530201, rate:0.36, base:125599},
+      {min:695801, rate:0.39, base:185215},
+      {min:887001, rate:0.41, base:259783},
+      {min:1878601, rate:0.45, base:666339}
+    ],
+    primaryRebate:17820, secondaryRebate:9765, tertiaryRebate:3249,
+    medicalMain:376, medicalAdditional:254, raCapRand:430000
+  }
+};
+function taxTableFor(endYear){
+  if(TAX_YEAR_TABLES[endYear]) return {table:TAX_YEAR_TABLES[endYear], exact:true};
+  // fall back to the nearest year we have real figures for
+  const known = Object.keys(TAX_YEAR_TABLES).map(Number).sort((a,b)=>Math.abs(a-endYear)-Math.abs(b-endYear));
+  return {table:TAX_YEAR_TABLES[known[0]], exact:false, fallbackYear:known[0]};
+}
+function computeBracketTax(income, brackets){
+  if(income<=0) return 0;
+  let b = brackets[0];
+  for(const br of brackets){ if(income>=br.min) b = br; else break; }
+  return b.base + b.rate*(income-b.min);
+}
+
+async function saveProjectionSettings(){
+  projectionSettings.yearOffset = parseInt(document.getElementById('proj-year-select').value) || 0;
+  projectionSettings.income = document.getElementById('proj-income').value;
+  projectionSettings.ageBand = document.getElementById('proj-age').value;
+  projectionSettings.medicalMembers = document.getElementById('proj-medical-members').value;
+  await storeSet('staatmaker:projection', JSON.stringify(projectionSettings));
+}
+async function persistProjectionSettings(){ await storeSet('staatmaker:projection', JSON.stringify(projectionSettings)); }
+
+
+
+// South African tax years run 1 March to end of February. offset=0 is the current tax year,
+// offset=1 is the previous one, etc.
+function taxYearBounds(offset){
+  const today = new Date();
+  let startYear = today.getMonth() >= 2 ? today.getFullYear() : today.getFullYear() - 1; // month 2 = March
+  startYear -= offset;
+  const start = new Date(startYear, 2, 1); // 1 March
+  const endActual = new Date(startYear+1, 2, 0); // last day of February
+  return {start, end: endActual, endYear: startYear+1, label: `1 Mar ${startYear} – 28/29 Feb ${startYear+1}`};
+}
+
+function dateInRange(dateStr, start, end){
+  if(!dateStr) return false;
+  const d = new Date(dateStr);
+  return d>=start && d<=end;
+}
+
+const PROJECTION_CATEGORIES = [
+  {cat:'Retirement Annuity', label:'Retirement Annuity Contributions', capType:'ra'},
+  {cat:'Medical Aid Contributions', label:'Medical Aid Contributions', capType:null},
+  {cat:'Medical - Other', label:'Additional Medical Expenses', capType:null},
+  {cat:'Income Protection', label:'Income Protection Premiums', capType:null},
+  {cat:'Donations', label:'Donations (Section 18A)', capType:'donations'}
+];
+
+function renderProjection(){
+  const sel = document.getElementById('proj-year-select');
+  if(sel.options.length===0){
+    for(let i=0;i<2;i++){
+      const b = taxYearBounds(i);
+      const opt = document.createElement('option');
+      opt.value = i; opt.textContent = (i===0?'Current — ':'Previous — ') + b.label;
+      sel.appendChild(opt);
+    }
+  }
+  sel.value = projectionSettings.yearOffset || 0;
+  document.getElementById('proj-income').value = projectionSettings.income || '';
+  document.getElementById('proj-age').value = projectionSettings.ageBand || 'under65';
+  document.getElementById('proj-medical-members').value = projectionSettings.medicalMembers || '';
+
+  const offset = parseInt(sel.value)||0;
+  const {start, end, endYear} = taxYearBounds(offset);
+  const {table, exact, fallbackYear} = taxTableFor(endYear);
+  const today = new Date();
+  const effectiveToday = today < end ? (today < start ? start : today) : end;
+  const totalDays = Math.round((end - start)/86400000) + 1;
+  const elapsedDays = Math.max(1, Math.round((effectiveToday - start)/86400000) + 1);
+  const scale = totalDays / elapsedDays;
+  const pct = Math.min(100, Math.round((elapsedDays/totalDays)*100));
+
+  document.getElementById('proj-progress').innerHTML =
+    `${elapsedDays} of ${totalDays} days into this tax year (${pct}%) — year-to-date figures are scaled ×${scale.toFixed(2)} to estimate the full year.`
+    + (exact ? '' : ` <span style="color:var(--gold-dark);">Using ${fallbackYear} SARS figures as the closest available reference — verify current rates on sars.gov.za.</span>`);
+
+  const income = parseFloat(document.getElementById('proj-income').value) || null;
+  const raCap = income ? Math.min(table.raCapRand, income*0.275) : table.raCapRand;
+  const donationsCap = income ? income*0.10 : null;
+
+  const projByCat = {};
+  const rows = PROJECTION_CATEGORIES.map(pc=>{
+    const ytd = transactions.filter(t=>t.category===pc.cat && dateInRange(t.date, start, effectiveToday)).reduce((s,t)=>s+Math.abs(t.amount),0);
+    const projected = ytd * scale;
+    projByCat[pc.cat] = projected;
+    let capNote = '';
+    if(pc.capType==='ra'){
+      capNote = `Cap: ${fmtR(raCap)}${income?` (27.5% of income, capped at ${fmtR(table.raCapRand)})`:` (statutory ceiling for this year — add income above for your actual %-based cap)`}`;
+      if(projected > raCap) capNote += ` — <span style="color:var(--rust);">projected total exceeds this cap; the excess isn't lost, it carries forward to next year</span>`;
+    } else if(pc.capType==='donations'){
+      capNote = income ? `Cap: ${fmtR(donationsCap)} (10% of income)` : 'Add an income estimate above to see the 10% cap';
+      if(income && projected > donationsCap) capNote += ` — <span style="color:var(--rust);">projected total exceeds this cap; amounts above it don't qualify for the deduction that year</span>`;
+    }
+    return `
+      <tr>
+        <td>${pc.label}</td>
+        <td class="amount">${fmtR(ytd)}</td>
+        <td class="amount">${fmtR(projected)}</td>
+        <td style="font-size:11.5px;color:var(--ink-soft);">${capNote}</td>
+      </tr>`;
+  }).join('');
+
+  document.getElementById('proj-table').innerHTML = `
+    <div class="table-wrap" style="max-height:none;">
+      <table>
+        <thead><tr><th>Category</th><th style="text-align:right;">Year-to-date</th><th style="text-align:right;">Projected full year</th><th>Notes</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  // Estimated tax outcome — only meaningful once an income figure is provided
+  const taxEl = document.getElementById('proj-tax-estimate');
+  if(!income){
+    taxEl.innerHTML = `<div class="empty" style="padding:20px;">Add your estimated taxable income above to see a rough tax outcome — bracket, rebate, medical credit, and roughly what your projected retirement annuity and donations are worth in tax terms.</div>`;
+  } else {
+    const raDeductible = Math.min(projByCat['Retirement Annuity']||0, raCap);
+    const donationsDeductible = donationsCap!==null ? Math.min(projByCat['Donations']||0, donationsCap) : (projByCat['Donations']||0);
+    const taxableAfterDeductions = Math.max(0, income - raDeductible - donationsDeductible);
+
+    const grossTax = computeBracketTax(taxableAfterDeductions, table.brackets);
+    const rebate = table.primaryRebate
+      + (projectionSettings.ageBand==='65to74' ? table.secondaryRebate : 0)
+      + (projectionSettings.ageBand==='75plus' ? (table.secondaryRebate+table.tertiaryRebate) : 0);
+
+    const members = parseInt(document.getElementById('proj-medical-members').value) || 0;
+    const monthlyMedicalCredit = members>0 ? (table.medicalMain*Math.min(members,2) + table.medicalAdditional*Math.max(members-2,0)) : 0;
+    const annualMedicalCredit = monthlyMedicalCredit*12;
+
+    const netTax = Math.max(0, grossTax - rebate - annualMedicalCredit);
+
+    // rough marginal rate at this income level, for the "value of your deduction" line
+    let marginalRate = table.brackets[0].rate;
+    for(const br of table.brackets){ if(taxableAfterDeductions>=br.min) marginalRate = br.rate; }
+    const deductionValue = (raDeductible+donationsDeductible) * marginalRate;
+
+    taxEl.innerHTML = `
+      <div class="receipt">
+        <h4>Estimated Tax Outcome</h4>
+        <div class="sub">ROUGH ESTIMATE — ${exact?endYear:fallbackYear} SARS TABLE</div>
+        <div class="line"><span>Taxable income (as entered)</span><span>${fmtR(income)}</span></div>
+        <div class="line"><span>Less: RA deduction (projected, capped)</span><span>-${fmtR(raDeductible)}</span></div>
+        <div class="line"><span>Less: Donations deduction (projected, capped)</span><span>-${fmtR(donationsDeductible)}</span></div>
+        <div class="line"><span>= Taxable income after deductions</span><span>${fmtR(taxableAfterDeductions)}</span></div>
+        <div class="line"><span>Tax per bracket table</span><span>${fmtR(grossTax)}</span></div>
+        <div class="line"><span>Less: rebate</span><span>-${fmtR(rebate)}</span></div>
+        ${members>0 ? `<div class="line"><span>Less: medical scheme fees tax credit</span><span>-${fmtR(annualMedicalCredit)}</span></div>` : ''}
+        <div class="line total"><span>Estimated annual tax</span><span>${fmtR(netTax)}</span></div>
+        <div class="note">Your RA and donation contributions this year are on track to be worth roughly ${fmtR(deductionValue)} in tax at your ${(marginalRate*100).toFixed(0)}% marginal rate. This ignores other income, other deductions, the additional medical expenses credit, and any other credits you may qualify for — it's a steer for planning, not a filing figure. A registered tax practitioner or SARS eFiling will give you the real number.</div>
+      </div>`;
+  }
+
+  // Rental projection
+  const rentalIncomeYTD = transactions.filter(t=>t.category==='Rental Income' && dateInRange(t.date, start, effectiveToday)).reduce((s,t)=>s+Math.abs(t.amount),0);
+  let rentalExpenseYTD = 0;
+  RENTAL_EXPENSE_CATEGORIES.forEach(cat=>{
+    rentalExpenseYTD += transactions.filter(t=>t.category===cat && dateInRange(t.date, start, effectiveToday)).reduce((s,t)=>s+Math.abs(t.amount),0);
+  });
+  const rentalEl = document.getElementById('proj-rental');
+  if(rentalIncomeYTD===0 && rentalExpenseYTD===0){
+    rentalEl.innerHTML = '';
+  } else {
+    const netYTD = rentalIncomeYTD - rentalExpenseYTD;
+    const netProjected = netYTD * scale;
+    rentalEl.innerHTML = `
+      <div class="receipt">
+        <h4>Rental Income Projection</h4>
+        <div class="sub">${elapsedDays} DAYS INTO TAX YEAR</div>
+        <div class="line"><span>Rental income (YTD → projected)</span><span>${fmtR(rentalIncomeYTD)} → ${fmtR(rentalIncomeYTD*scale)}</span></div>
+        <div class="line"><span>Rental expenses (YTD → projected)</span><span>${fmtR(rentalExpenseYTD)} → ${fmtR(rentalExpenseYTD*scale)}</span></div>
+        <div class="line total"><span>${netProjected>=0?'Projected net rental income':'Projected net rental loss'}</span><span>${fmtR(netProjected)}</span></div>
+      </div>`;
+  }
+}
+async function loadHomeOffice(){
+  try{
+    const h = await storeGet('staatmaker:homeoffice');
+    if(h) homeOffice = Object.assign(homeOffice, JSON.parse(h));
+  }catch(e){ /* no saved settings yet */ }
+}
+async function saveHomeOffice(){ await storeSet('staatmaker:homeoffice', JSON.stringify(homeOffice)); }
+
+async function clearAllData(){
+  if(!confirm('This clears all imported transactions, files and custom rules from your saved storage. Continue?')) return;
+  transactions = []; files = []; rules = DEFAULT_RULES.map(([kw,cat,tax])=>({kw,cat,tax}));
+  await saveTransactions(); await saveFiles(); await saveRules();
+  renderAll();
+}
+
+function downloadBackup(){
+  const backup = {version:1, exportedAt:new Date().toISOString(), transactions, rules, files, homeOffice, projectionSettings};
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `staatmaker-backup-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function restoreBackup(file){
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if(!data.transactions){ alert('This doesn\'t look like a Staatmaker backup file.'); return; }
+    if(!confirm(`This will replace your current data with the backup from ${data.exportedAt ? new Date(data.exportedAt).toLocaleString() : 'this file'} (${data.transactions.length} transactions). Continue?`)) return;
+    transactions = data.transactions || [];
+    rules = data.rules || DEFAULT_RULES.map(([kw,cat,tax])=>({kw,cat,tax}));
+    files = data.files || [];
+    homeOffice = Object.assign({officeArea:'', homeArea:'', equipment:'', costs:{}, checklist:{}}, data.homeOffice || {});
+    projectionSettings = Object.assign({yearOffset:0, income:'', ageBand:'under65', medicalMembers:''}, data.projectionSettings || {});
+    await saveTransactions(); await saveRules(); await saveFiles(); await saveHomeOffice(); await persistProjectionSettings();
+    renderAll();
+    alert('Backup restored.');
+  }catch(e){
+    console.error(e);
+    alert('Could not read that backup file — make sure it\'s an unmodified .json file downloaded from Staatmaker.');
+  }
+}
+
+/* ---------------- CATEGORISATION ---------------- */
+function categorise(desc){
+  const d = (desc||'').toUpperCase();
+  for(const r of rules){
+    if(d.includes(r.kw.toUpperCase())){
+      return {category:r.cat, taxLabel: r.tax ? (TAX_LABELS[r.cat] || r.cat) : null};
+    }
+  }
+  return {category:'Uncategorised', taxLabel:null};
+}
+
+function reapplyRules(){
+  transactions.forEach(t=>{
+    const {category, taxLabel} = categorise(t.desc);
+    t.category = category; t.taxLabel = taxLabel;
+  });
+  saveTransactions();
+  renderAll();
+}
+
+function addRule(){
+  const kw = document.getElementById('rule-kw').value.trim();
+  const cat = document.getElementById('rule-cat').value;
+  const tax = document.getElementById('rule-tax').checked;
+  if(!kw) return;
+  rules.unshift({kw, cat, tax});
+  document.getElementById('rule-kw').value='';
+  document.getElementById('rule-tax').checked=false;
+  saveRules();
+  renderRulesList();
+}
+function removeRule(idx){
+  rules.splice(idx,1);
+  saveRules();
+  renderRulesList();
+}
+
+/* ---------------- FILE PARSING ---------------- */
+function detectColumns(headers){
+  const H = headers.map(h=>String(h||'').trim().toLowerCase());
+  const find = (cands)=>{
+    for(const c of cands){
+      const i = H.findIndex(h=>h.includes(c));
+      if(i>-1) return i;
+    }
+    return -1;
+  };
+  return {
+    date: find(['date','transaction date','posting date','value date']),
+    desc: find(['description','details','narrative','transaction description','reference']),
+    amount: find(['amount']),
+    debit: find(['debit','money out','withdrawal']),
+    credit: find(['credit','money in','deposit']),
+    balance: find(['balance'])
+  };
+}
+
+function parseAmount(v){
+  if(v===undefined||v===null||v==='') return null;
+  let s = String(v).replace(/R/gi,'').replace(/\s/g,'').replace(/,/g,'');
+  let neg = false;
+  if(/^\(.*\)$/.test(s)){ neg=true; s=s.replace(/[()]/g,''); }
+  if(/-$/.test(s)){ neg=true; s=s.replace(/-$/,''); } // trailing minus, e.g. "735.00-"
+  if(/^-/.test(s)){ neg=true; }
+  s = s.replace(/-/g,'');
+  const n = parseFloat(s);
+  if(isNaN(n)) return null;
+  return neg ? -Math.abs(n) : n;
+}
+
+function parseDate(v){
+  if(!v) return '';
+  const s = String(v).trim();
+  const MONTHS = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+  let m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if(m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+  m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if(m){
+    let yr = m[3].length===2 ? '20'+m[3] : m[3];
+    return `${yr}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  }
+  m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\.?\s+(\d{2,4})/);
+  if(m){
+    const mon = MONTHS[m[2].slice(0,3).toLowerCase()];
+    if(mon){
+      let yr = m[3].length===2 ? '20'+m[3] : m[3];
+      return `${yr}-${mon}-${m[1].padStart(2,'0')}`;
+    }
+  }
+  return s;
+}
+
+function idGen(){ return 'tx_' + Math.random().toString(36).slice(2,10); }
+
+async function handleCSVFile(file, bank){
+  return new Promise((resolve)=>{
+    Papa.parse(file, {
+      complete: (results)=>{
+        const rows = results.data.filter(r=>r.length>1 && r.some(c=>String(c).trim()!==''));
+        if(rows.length<2){ resolve([]); return; }
+        const headers = rows[0];
+        const cols = detectColumns(headers);
+        const out = [];
+        for(let i=1;i<rows.length;i++){
+          const row = rows[i];
+          const dateRaw = cols.date>-1 ? row[cols.date] : '';
+          const desc = cols.desc>-1 ? row[cols.desc] : row.slice(0,3).join(' ');
+          if(!dateRaw && !desc) continue;
+          let amt = null;
+          if(cols.amount>-1) amt = parseAmount(row[cols.amount]);
+          else if(cols.debit>-1 || cols.credit>-1){
+            const debit = cols.debit>-1 ? parseAmount(row[cols.debit]) : null;
+            const credit = cols.credit>-1 ? parseAmount(row[cols.credit]) : null;
+            if(credit) amt = Math.abs(credit);
+            else if(debit) amt = -Math.abs(debit);
+          }
+          if(amt===null || !dateRaw) continue;
+          const {category, taxLabel} = categorise(desc);
+          out.push({id:idGen(), date:parseDate(dateRaw), desc:String(desc).trim(), bank, amount:amt, category, taxLabel});
+        }
+        resolve(out);
+      },
+      error: ()=>resolve([])
+    });
+  });
+}
+
+async function loadPdfWithPassword(file){
+  let password;
+  for(let attempt=0; attempt<4; attempt++){
+    try{
+      const buf = await file.arrayBuffer(); // fresh buffer each attempt — pdf.js detaches it
+      const task = pdfjsLib.getDocument(password!==undefined ? {data:buf, password} : {data:buf});
+      const pdf = await task.promise;
+      return pdf;
+    }catch(err){
+      if(err && err.name === 'PasswordException'){
+        const incorrect = err.code === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD;
+        const msg = incorrect
+          ? `That password didn't work for "${file.name}". Try again — it's often your SA ID number, or your bank account/client number:`
+          : `"${file.name}" is password protected. Enter the password — SA banks usually use your ID number, or your account/client number:`;
+        password = prompt(msg);
+        if(password === null || password === ''){ return null; } // user cancelled
+        continue;
+      }
+      console.error(err);
+      return null;
+    }
+  }
+  return null;
+}
+
+const AFRIKAANS_MONTHS = {
+  jan:'01', januarie:'01', feb:'02', februarie:'02', mar:'03', maart:'03', apr:'04', april:'04',
+  may:'05', mei:'05', jun:'06', junie:'06', jul:'07', julie:'07', aug:'08', augustus:'08',
+  sep:'09', september:'09', oct:'10', okt:'10', oktober:'10', nov:'11', november:'11',
+  dec:'12', des:'12', desember:'12'
+};
+
+const AFRIKAANS_GLOSSARY = [
+  ['IB-BETALING NA','Internet banking payment to'],
+  ['IB-BETALING UIT','Internet banking payment reversed'],
+  ['IB OORPLASING NA','Internet banking transfer to'],
+  ['ONMIDDELLIKE BETALING','Immediate payment'],
+  ['FOOI ONMIDDELLIKE BETALING','Fee: immediate payment'],
+  ['FOOI-VP GEWEIER ONVOLD FONDSE','Fee: payment reversed, insufficient funds'],
+  ['KREDIETOORPLASING TUSSEN BANKE','Inter-bank credit transfer'],
+  ['ELEKTRONIESE BANK BETALING VAN','Electronic bank payment from'],
+  ['OORPLASING IN WERKLIKE TYD VAN','Real-time transfer from'],
+  ['PAYSHAP-BETALING AAN','PayShap payment to'],
+  ['GELDE PAYSHAP-BETALING','PayShap payment fee'],
+  ['MAGNEETBANDKREDIET','Bulk salary credit'],
+  ['OORTREKKINGS RENTE','Overdraft interest'],
+  ['OORSKRYDINGSRENTE','Over-limit interest'],
+  ['OORTREKKING-DIENSGELD','Overdraft service fee'],
+  ['REKENINGBETALING','Account payment'],
+  ['DEBIETOORPLASING','Debit transfer'],
+  ['VASTE MAANDELIKSE FOOI','Fixed monthly fee'],
+  ['GEMIGREERDE DC-DEBIET','Migrated debit card charge'],
+  ['VERSEKERINGSPREMIE','Insurance premium'],
+  ['DIENSOOREENKOMS','Service agreement'],
+  ["TRGGST-NIE VOORSIEN NIE",'Transaction reversal'],
+  ['KOSTE-ONBETAALDE ITEM','Cost: unpaid item'],
+  ['TJEKKAART-AANKOOP','Debit card purchase'],
+  ['DEBICHECK-DEBIETORDER','DebiCheck debit order'],
+  ['LIDMAATSKAPFOOI','Membership fee'],
+  ['SALDO OORGEBRING','Balance brought forward']
+];
+function translateDesc(desc){
+  let out = desc;
+  for(const [af,en] of AFRIKAANS_GLOSSARY){
+    if(out.toUpperCase().includes(af)) out += ` (${en})`;
+  }
+  return out;
+}
+
+const SB_STOP_MARKERS = [
+  'VERIFIEER ASSEBLIEF','BESOEK ASSEBLIEF','DIE STANDARD BANK VAN','BTW-REG','ONS ONDERSKRYF',
+  'KLIENTESORGSENTRUM','EPOS:','BANKSTAAT','ACHIEVA TJEKREKENING','BLADSY','STAAT VAN','MAANDELIKS',
+  'REKENINGNOMMER','MAANDEINDESALDO','BESONDERHEDE','OPSOMMING','PERKSTRUKTUUR',
+  'OORTREKKINGSBESONDERHEDE','HIERDIE FOOIE SLUIT BTW','SALDO OORGEBRING','STAATNOMMER',
+  'STAATFREKWENSIE','P.BUS','MARSHALLTOWN'
+];
+
+function isStandardBankAfrikaans(fullText){
+  const t = fullText.toUpperCase();
+  return t.includes('BANKSTAAT') && t.includes('DIENSGELD') && t.includes('BESONDERHEDE');
+}
+
+function getStatementYears(fullText){
+  const m = fullText.match(/Staat van\s+\d{1,2}\s+([A-Za-z]+)\s+(\d{4})\s+tot\s+\d{1,2}\s+([A-Za-z]+)\s+(\d{4})/i);
+  if(m){
+    const startMonth = AFRIKAANS_MONTHS[m[1].toLowerCase()];
+    const startYear = m[2];
+    const endMonth = AFRIKAANS_MONTHS[m[3].toLowerCase()];
+    const endYear = m[4];
+    if(startMonth && endMonth) return {startMonth, startYear, endMonth, endYear};
+  }
+  const y = new Date().getFullYear();
+  return {startMonth:'01', startYear:String(y), endMonth:'12', endYear:String(y)};
+}
+
+function parseStandardBankAfrikaans(fullText, bank){
+  const years = getStatementYears(fullText);
+  const lineRe = /^(.*?)\s*(-?R?\s?\d[\d,]*\.\d{2}-?)\s+(\d{2})\s+(\d{2})\s+(-?R?\s?\d[\d,]*\.\d{2}-?)\s*$/;
+  const lines = fullText.split('\n').map(l=>l.trim()).filter(Boolean);
+  const out = [];
+  let current = null;
+  for(const line of lines){
+    const upper = line.toUpperCase();
+    if(SB_STOP_MARKERS.some(mk=>upper.includes(mk))){ current = null; continue; }
+    const m = line.match(lineRe);
+    if(m){
+      const rawDesc = m[1].replace(/##/g,'').trim();
+      const amt = parseAmount(m[2]);
+      const month = m[3], day = m[4];
+      if(amt===null){ current = null; continue; }
+      // pick the year matching whichever end of the statement period this month belongs to
+      const year = (month === years.endMonth) ? years.endYear : (month === years.startMonth) ? years.startYear : years.endYear;
+      const date = `${year}-${month}-${day}`;
+      const {category, taxLabel} = categorise(rawDesc);
+      current = {id:idGen(), date, desc:rawDesc, descEN:translateDesc(rawDesc), bank, amount:amt, category, taxLabel};
+      out.push(current);
+    } else if(current){
+      current.desc = (current.desc + ' ' + line).trim();
+      current.descEN = translateDesc(current.desc);
+      const recat = categorise(current.desc);
+      current.category = recat.category;
+      current.taxLabel = recat.taxLabel;
+    }
+  }
+  return out;
+}
+
+async function handlePDFFile(file, bank){
+  const pdf = await loadPdfWithPassword(file);
+  if(!pdf) return null; // cancelled, or a non-password error
+  let fullText = '';
+  for(let p=1;p<=pdf.numPages;p++){
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    let lastY=null, line='';
+    for(const item of content.items){
+      if(lastY!==null && Math.abs(item.transform[5]-lastY)>2){ fullText+=line+'\n'; line=''; }
+      line += item.str + ' ';
+      lastY = item.transform[5];
+    }
+    fullText += line + '\n';
+  }
+
+  if(isStandardBankAfrikaans(fullText)){
+    return parseStandardBankAfrikaans(fullText, bank);
+  }
+
+  const lines = fullText.split('\n');
+  const out = [];
+  const dateRe = /(\d{2}[\/\-.]\d{2}[\/\-.]\d{2,4}|\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{2,4})/;
+  const amtRe = /(-?R?\s?\d[\d,]*\.\d{2})\s*(cr|dr)?/gi;
+  for(const raw of lines){
+    const line = raw.trim();
+    if(!line) continue;
+    const dm = line.match(dateRe);
+    if(!dm) continue;
+    const amounts = [...line.matchAll(amtRe)];
+    if(amounts.length===0) continue;
+    const lastMatch = amounts[amounts.length-1];
+    let amt = parseAmount(lastMatch[1]);
+    if(amt===null) continue;
+    const suffix = (lastMatch[2]||'').toLowerCase();
+    if(suffix==='dr') amt = -Math.abs(amt);
+    else if(suffix==='cr') amt = Math.abs(amt);
+    let desc = line.replace(dateRe,'').replace(new RegExp(amtRe.source,'gi'),'').trim();
+    desc = desc.replace(/\s{2,}/g,' ');
+    if(!desc) continue;
+    const {category, taxLabel} = categorise(desc);
+    out.push({id:idGen(), date:parseDate(dm[1]), desc, descEN:desc, bank, amount:amt, category, taxLabel});
+  }
+  return out;
+}
+
+async function processFiles(fileList, bank){
+  const newTxns = [];
+  let skipped = 0;
+  for(const file of fileList){
+    let parsed = [];
+    if(file.name.toLowerCase().endsWith('.csv')){
+      parsed = await handleCSVFile(file, bank);
+    }else if(file.name.toLowerCase().endsWith('.pdf')){
+      parsed = await handlePDFFile(file, bank);
+      if(parsed === null){ skipped++; continue; }
+    }
+    newTxns.push(...parsed);
+    files.push({name:file.name, bank, count:parsed.length, importedAt:new Date().toISOString()});
+  }
+  transactions.push(...newTxns);
+  await saveTransactions();
+  await saveFiles();
+  renderAll();
+  if(skipped>0){
+    alert(`${skipped} file(s) were skipped — no password was entered (or it kept failing). Drop the file in again to retry.`);
+  }
+  if(newTxns.length===0 && skipped===0 && fileList.length>0){
+    alert('No transactions could be detected in that file. PDF layouts vary a lot between banks — you can still add rows manually, or try exporting a CSV from your bank\'s app/site instead, which parses more reliably.');
+  }
+}
+
+/* ---------------- RENDER ---------------- */
+function fmtR(n){
+  const sign = n<0 ? '-' : '';
+  return sign + 'R ' + Math.abs(n).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+function renderRulesList(){
+  const el = document.getElementById('rules-list');
+  el.innerHTML = rules.map((r,i)=>`
+    <div class="rule-row">
+      <span class="kw">${r.kw}</span><span class="arrow">→</span>
+      <span>${r.cat}${r.tax?' <span title="Tax-relevant" style="color:var(--gold-dark)">★</span>':''}</span>
+      <button onclick="removeRule(${i})" style="margin-left:auto;background:none;border:none;color:var(--rust);cursor:pointer;">✕</button>
+    </div>`).join('');
+  const sel = document.getElementById('rule-cat');
+  sel.innerHTML = DEFAULT_CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('');
+}
+
+function renderFileList(){
+  const el = document.getElementById('file-list');
+  if(files.length===0){ el.innerHTML = '<p style="font-size:11.5px;color:var(--ink-faint);">No files imported yet.</p>'; return; }
+  el.innerHTML = files.map(f=>`<div class="file-row"><span>${f.name}</span><span class="tag">${f.bank} · ${f.count}</span></div>`).join('');
+}
+
+function allCategories(){
+  const set = new Set(DEFAULT_CATEGORIES);
+  transactions.forEach(t=>set.add(t.category));
+  return [...set];
+}
+
+function renderStats(){
+  const income = transactions.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
+  const spend = transactions.filter(t=>t.amount<0).reduce((s,t)=>s+Math.abs(t.amount),0);
+  const taxTotal = transactions.filter(t=>t.taxLabel).reduce((s,t)=>s+Math.abs(t.amount),0);
+  const el = document.getElementById('stat-row');
+  el.innerHTML = `
+    <div class="stat-card positive"><div class="label">Total in</div><div class="value">${fmtR(income)}</div></div>
+    <div class="stat-card negative"><div class="label">Total spent</div><div class="value">${fmtR(spend)}</div></div>
+    <div class="stat-card"><div class="label">Transactions</div><div class="value">${transactions.length}</div></div>
+    <div class="stat-card"><div class="label">Flagged tax-relevant</div><div class="value" style="color:var(--gold-dark);">${fmtR(taxTotal)}</div></div>
+  `;
+}
+
+function renderTransactions(){
+  const q = (document.getElementById('search-box').value||'').toLowerCase();
+  const body = document.getElementById('txn-body');
+  const rows = transactions
+    .filter(t=>!q || t.desc.toLowerCase().includes(q))
+    .sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+  if(rows.length===0){
+    body.innerHTML = `<tr><td colspan="6"><div class="empty"><div class="icon">🧾</div>No transactions yet — import a statement on the left to get started.</div></td></tr>`;
+    return;
+  }
+  const cats = allCategories();
+  body.innerHTML = rows.map(t=>`
+    <tr>
+      <td><input type="text" class="mono" value="${escapeHtml(t.date||'')}" style="width:90px;border:1px solid var(--line);padding:3px;border-radius:2px;" onchange="updateField('${t.id}','date',this.value)"></td>
+      <td><input type="text" value="${escapeHtml(t.desc)}" style="width:100%;min-width:180px;border:1px solid var(--line);padding:3px;border-radius:2px;" onchange="updateField('${t.id}','desc',this.value)">${(t.descEN && t.descEN!==t.desc) ? `<div style="font-size:10.5px;color:var(--ink-faint);font-style:italic;margin-top:2px;">${escapeHtml(t.descEN)}</div>` : ''}</td>
+      <td>${t.bank||''}</td>
+      <td>
+        <select class="cat-select" onchange="updateCategory('${t.id}', this.value)">
+          ${cats.map(c=>`<option value="${c}" ${c===t.category?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </td>
+      <td class="amount"><input type="number" step="0.01" class="mono" value="${t.amount}" style="width:100px;text-align:right;border:1px solid var(--line);padding:3px;border-radius:2px;color:${t.amount<0?'var(--rust)':'var(--teal)'};" onchange="updateField('${t.id}','amount',parseFloat(this.value)||0)"></td>
+      <td>${t.taxLabel ? `<span class="stamp" title="${t.taxLabel}">SARS</span>` : ''}</td>
+      <td><button onclick="deleteTxn('${t.id}')" style="background:none;border:none;color:var(--rust);cursor:pointer;font-size:14px;" title="Delete row">✕</button></td>
+    </tr>`).join('');
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function updateField(id, field, value){
+  const t = transactions.find(t=>t.id===id);
+  if(!t) return;
+  t[field] = value;
+  if(field==='desc'){
+    t.descEN = translateDesc(value);
+    const {category, taxLabel} = categorise(value);
+    // only auto-recategorise if it was still on the default guess, so manual overrides aren't clobbered
+    if(t.category==='Uncategorised'){ t.category = category; t.taxLabel = taxLabel; }
+  }
+  saveTransactions();
+  renderAll();
+}
+
+function deleteTxn(id){
+  transactions = transactions.filter(t=>t.id!==id);
+  saveTransactions();
+  renderAll();
+}
+
+function addManualTxn(){
+  const bank = document.getElementById('bank-picker').value;
+  transactions.unshift({id:idGen(), date:new Date().toISOString().slice(0,10), desc:'New transaction', descEN:'', bank, amount:0, category:'Uncategorised', taxLabel:null});
+  saveTransactions();
+  renderAll();
+}
+
+function updateCategory(id, cat){
+  const t = transactions.find(t=>t.id===id);
+  if(!t) return;
+  t.category = cat;
+  t.taxLabel = TAX_LABELS[cat] || null;
+  saveTransactions();
+  renderAll();
+}
+
+function renderCategories(){
+  const map = {};
+  transactions.filter(t=>t.amount<0).forEach(t=>{
+    map[t.category] = map[t.category] || {total:0,count:0};
+    map[t.category].total += Math.abs(t.amount);
+    map[t.category].count += 1;
+  });
+  const entries = Object.entries(map).sort((a,b)=>b[1].total-a[1].total);
+  const body = document.getElementById('cat-body');
+  body.innerHTML = entries.length ? entries.map(([cat,v])=>`
+    <tr><td>${cat}</td><td class="amount">${fmtR(v.total)}</td><td class="amount">${v.count}</td></tr>
+  `).join('') : `<tr><td colspan="3"><div class="empty">No spending data yet.</div></td></tr>`;
+
+  const ctx = document.getElementById('cat-chart');
+  if(catChartInstance) catChartInstance.destroy();
+  if(entries.length){
+    catChartInstance = new Chart(ctx, {
+      type:'bar',
+      data:{
+        labels: entries.map(e=>e[0]),
+        datasets:[{ data: entries.map(e=>e[1].total), backgroundColor:'#B5842A' }]
+      },
+      options:{
+        indexAxis:'y',
+        plugins:{legend:{display:false}},
+        scales:{x:{ticks:{callback:v=>'R'+v.toLocaleString()}}}
+      }
+    });
+  }
+}
+
+function renderTax(){
+  const map = {};
+  transactions.filter(t=>t.taxLabel).forEach(t=>{
+    map[t.taxLabel] = (map[t.taxLabel]||0) + Math.abs(t.amount);
+  });
+  const entries = Object.entries(map);
+  const total = entries.reduce((s,[,v])=>s+v,0);
+  const el = document.getElementById('tax-receipt');
+  if(entries.length===0){
+    el.innerHTML = `<div class="empty"><div class="icon">🧾</div>No tax-relevant items detected yet. Import statements, or add categorisation rules on the left (e.g. your retirement annuity or medical aid provider's name) so Staatmaker can flag them.</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="receipt">
+      <h4>Tax-Relevant Summary</h4>
+      <div class="sub">FROM IMPORTED BANK RECORDS</div>
+      ${entries.map(([label,v])=>`<div class="line"><span>${label}</span><span>${fmtR(v)}</span></div>`).join('')}
+      <div class="line total"><span>Total flagged</span><span>${fmtR(total)}</span></div>
+      <div class="note">These figures come from matching transaction descriptions and are estimates only. SARS requires the actual certificates for each deduction — your medical aid tax certificate, RA contribution certificate(s), and Section 18A donation receipts — so reconcile these totals against those documents before submitting your return.</div>
+    </div>
+  `;
+}
+
+function renderRental(){
+  const income = transactions.filter(t=>t.category==='Rental Income').reduce((s,t)=>s+Math.abs(t.amount),0);
+  const expenseMap = {};
+  let expenseTotal = 0;
+  RENTAL_EXPENSE_CATEGORIES.forEach(cat=>{
+    const total = transactions.filter(t=>t.category===cat).reduce((s,t)=>s+Math.abs(t.amount),0);
+    if(total>0){ expenseMap[cat]=total; expenseTotal+=total; }
+  });
+  const net = income - expenseTotal;
+  const el = document.getElementById('rental-receipt');
+  if(income===0 && expenseTotal===0){
+    el.innerHTML = `<div class="empty"><div class="icon">🏠</div>No rental transactions tagged yet. In the Transactions tab, set the category on rent deposits to <b>Rental Income</b>, and property costs to the matching <b>Rental – …</b> category.</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="receipt">
+      <h4>Rental Income Summary</h4>
+      <div class="sub">FROM IMPORTED BANK RECORDS</div>
+      <div class="line"><span>Rental income received</span><span>${fmtR(income)}</span></div>
+      ${Object.entries(expenseMap).map(([cat,v])=>`<div class="line"><span>${cat.replace('Rental - ','')}</span><span>-${fmtR(v).replace('R ','R ')}</span></div>`).join('')}
+      <div class="line total"><span>${net>=0?'Net rental income':'Net rental loss'}</span><span>${fmtR(net)}</span></div>
+      <div class="note">Declared under the rental income section of your ITR12. Keep proof of each expense (levy statements, insurance schedules, agent invoices, bond interest certificate) — SARS can ask for these even though they don't attach to the return itself. If this is a loss, note that ring-fencing rules can restrict offsetting it against other income; a tax practitioner can confirm how it applies to your situation.</div>
+    </div>
+  `;
+}
+
+function homeOfficeCostTotals(){
+  const totals = {};
+  Object.entries(HOME_OFFICE_SOURCE_CATEGORIES).forEach(([cat,key])=>{
+    const sum = transactions.filter(t=>t.category===cat).reduce((s,t)=>s+Math.abs(t.amount),0);
+    if(sum>0) totals[key] = (totals[key]||0) + sum;
+  });
+  return totals;
+}
+
+function renderHomeOfficeChecklist(){
+  const el = document.getElementById('ho-checklist');
+  const items = [
+    {key:'exclusive', label:'The space is set up specifically for work and used almost exclusively for it (not a corner of a shared living room).'},
+    {key:'regular', label:'You use it regularly, not occasionally.'},
+    {key:'majority', label:'You perform more than half of your total working duties there, or earn mainly commission and do most of that work from home.'}
+  ];
+  const allChecked = items.every(i=>homeOffice.checklist[i.key]);
+  el.innerHTML = `
+    <h3>Do you qualify first?</h3>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-top:-4px;">SARS sets a genuinely high bar for salaried employees claiming home office expenses. All three must be true:</p>
+    ${items.map(i=>`
+      <label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin-bottom:8px;">
+        <input type="checkbox" id="ho-chk-${i.key}" ${homeOffice.checklist[i.key]?'checked':''} onchange="updateHOChecklist('${i.key}', this.checked)" style="margin-top:3px;">
+        <span>${i.label}</span>
+      </label>`).join('')}
+    ${!allChecked ? `<div class="disclaimer" style="margin:8px 0 0;"><b>Heads up:</b> based on what's ticked, you likely don't meet SARS's requirements yet. The calculation below will still run so you can see the numbers, but check with a tax practitioner before claiming it.</div>` : ''}
+  `;
+}
+function updateHOChecklist(key, val){
+  homeOffice.checklist[key] = val;
+  saveHomeOffice();
+  renderHomeOfficeChecklist();
+}
+
+function renderHomeOffice(){
+  renderHomeOfficeChecklist();
+  document.getElementById('ho-office-area').value = homeOffice.officeArea || '';
+  document.getElementById('ho-home-area').value = homeOffice.homeArea || '';
+  document.getElementById('ho-equipment').value = homeOffice.equipment || '';
+
+  const prefill = homeOfficeCostTotals();
+  const costsEl = document.getElementById('ho-costs');
+  costsEl.innerHTML = HOME_OFFICE_FIELDS.map(f=>{
+    const val = (homeOffice.costs[f.key]!==undefined && homeOffice.costs[f.key]!=='') ? homeOffice.costs[f.key] : (prefill[f.key]||'');
+    return `<div class="map-row"><label>${f.label}</label><input type="number" step="0.01" min="0" data-hofield="${f.key}" value="${val}" style="padding:6px;border:1px solid var(--line);border-radius:2px;" onchange="updateHOCost('${f.key}', this.value)"></div>`;
+  }).join('');
+
+  computeHomeOfficeResult();
+}
+
+function updateHOCost(key, val){
+  homeOffice.costs[key] = val;
+  saveHomeOffice();
+  computeHomeOfficeResult();
+}
+
+function computeHomeOfficeResult(){
+  const officeArea = parseFloat(document.getElementById('ho-office-area').value) || 0;
+  const homeArea = parseFloat(document.getElementById('ho-home-area').value) || 0;
+  const pct = homeArea>0 ? (officeArea/homeArea)*100 : 0;
+  document.getElementById('ho-pct').textContent = pct.toFixed(1)+'%';
+
+  let apportionable = 0;
+  HOME_OFFICE_FIELDS.forEach(f=>{
+    const input = document.querySelector(`[data-hofield="${f.key}"]`);
+    apportionable += input ? (parseFloat(input.value)||0) : 0;
+  });
+  const equipment = parseFloat(document.getElementById('ho-equipment').value) || 0;
+  const apportioned = apportionable * (pct/100);
+  const total = apportioned + equipment;
+
+  const el = document.getElementById('ho-result');
+  el.innerHTML = `
+    <div class="receipt">
+      <h4>Home Office Deduction</h4>
+      <div class="sub">ESTIMATE</div>
+      <div class="line"><span>Apportionable costs</span><span>${fmtR(apportionable)}</span></div>
+      <div class="line"><span>Work-use percentage</span><span>${pct.toFixed(1)}%</span></div>
+      <div class="line"><span>Apportioned amount</span><span>${fmtR(apportioned)}</span></div>
+      <div class="line"><span>Equipment wear &amp; tear</span><span>${fmtR(equipment)}</span></div>
+      <div class="line total"><span>Estimated deduction</span><span>${fmtR(total)}</span></div>
+      <div class="note">This is only worth claiming if you tick all three requirements above. Employer confirmation (a letter or clause in your contract about working from home) strengthens the claim. Keep your floor plan measurements and cost records on file.</div>
+    </div>
+  `;
+}
+
+function saveHomeOfficeInputs(){
+  homeOffice.officeArea = document.getElementById('ho-office-area').value;
+  homeOffice.homeArea = document.getElementById('ho-home-area').value;
+  homeOffice.equipment = document.getElementById('ho-equipment').value;
+  saveHomeOffice();
+}
+
+function renderAll(){
+  renderStats();
+  renderTransactions();
+  renderCategories();
+  renderTax();
+  renderRental();
+  renderHomeOffice();
+  renderProjection();
+  renderRulesList();
+  renderFileList();
+  const now = new Date();
+  document.getElementById('tax-year-label').textContent = `SA tax year ${now.getMonth()>=2? now.getFullYear():now.getFullYear()-1}–${now.getMonth()>=2? now.getFullYear()+1:now.getFullYear()} · ${transactions.length} records`;
+}
+
+/* ---------------- EXPORT ---------------- */
+function exportXLSX(){
+  if(transactions.length===0){ alert('Nothing to export yet — import some statements first.'); return; }
+  const wb = XLSX.utils.book_new();
+
+  const txnSheet = transactions
+    .slice()
+    .sort((a,b)=>(a.date||'').localeCompare(b.date||''))
+    .map(t=>({Date:t.date, Description:t.desc, 'Description (English)':(t.descEN&&t.descEN!==t.desc)?t.descEN:'', Bank:t.bank, Category:t.category, 'Tax Relevant':t.taxLabel||'', 'Amount (R)':t.amount}));
+  const ws1 = XLSX.utils.json_to_sheet(txnSheet);
+  XLSX.utils.book_append_sheet(wb, ws1, 'Transactions');
+
+  const catMap = {};
+  transactions.filter(t=>t.amount<0).forEach(t=>{
+    catMap[t.category] = (catMap[t.category]||0) + Math.abs(t.amount);
+  });
+  const ws2 = XLSX.utils.json_to_sheet(Object.entries(catMap).map(([Category,Total])=>({Category,'Total (R)':Total})));
+  XLSX.utils.book_append_sheet(wb, ws2, 'Category Summary');
+
+  const taxMap = {};
+  transactions.filter(t=>t.taxLabel).forEach(t=>{
+    taxMap[t.taxLabel] = (taxMap[t.taxLabel]||0) + Math.abs(t.amount);
+  });
+  const ws3 = XLSX.utils.json_to_sheet(Object.entries(taxMap).map(([Item,Total])=>({Item,'Total (R)':Total})));
+  XLSX.utils.book_append_sheet(wb, ws3, 'Tax Summary');
+
+  XLSX.writeFile(wb, `staatmaker-tax-summary-${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+/* ---------------- EVENTS ---------------- */
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('view-'+tab.dataset.view).classList.add('active');
+  });
+});
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+dropzone.addEventListener('click', ()=>fileInput.click());
+dropzone.addEventListener('dragover', e=>{e.preventDefault(); dropzone.classList.add('drag');});
+dropzone.addEventListener('dragleave', ()=>dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e=>{
+  e.preventDefault(); dropzone.classList.remove('drag');
+  const bank = document.getElementById('bank-picker').value;
+  processFiles([...e.dataTransfer.files], bank);
+});
+fileInput.addEventListener('change', e=>{
+  const bank = document.getElementById('bank-picker').value;
+  processFiles([...e.target.files], bank);
+  fileInput.value = '';
+});
+
+/* ---------------- INIT ---------------- */
+(async function init(){
+  await loadData();
+  renderAll();
+  lastSaveStatus = {ok:true, time:null};
+  const el = document.getElementById('save-indicator');
+  if(el){
+    el.textContent = transactions.length ? `Loaded ${transactions.length} transactions from this browser's storage` : `Ready — nothing saved in this browser yet`;
+  }
+})();
+</script>
+</body>
+</html>
