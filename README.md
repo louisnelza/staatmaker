@@ -23,7 +23,15 @@ sorting so you can spend your time checking the result, not building it.
 - **Automatic categorisation** — a keyword-rule engine (editable, with Afrikaans-aware rules built
   in) sorts transactions into spending categories and flags the ones relevant to your return:
   Retirement Annuity, Medical Aid, Additional Medical Expenses, Income Protection, Donations (s18A).
-- **Rental income** — tag rental deposits and property costs to get a net rental income/loss summary.
+- **Rental income with cottage apportionment** — tag rental deposits and property costs to get a net rental
+  result. Enter the let area and the whole-property area (and the months it was held out for letting) and
+  Staatmaker cuts costs that serve the whole property (rates, insurance, electricity, water, internet, garden
+  and security, bond interest) down to the cottage share, while costs that belong to the cottage alone
+  (repairs, furnishings and linen, agent commission) are claimed in full. Every known category has a default
+  treatment (apportion, 100% cottage, or not a rental deduction) that you can override, and the summary is
+  laid out on the ITR12 rental expenditure lines. Ambiguous categories such as Utilities (which also holds
+  phone bills) and Rent / Bond (which includes capital) are excluded by default and flagged, rather than
+  silently claimed.
 - **Work-from-home deduction** — a SARS-requirement checklist plus a floor-area apportionment
   calculator for salaried employees who may qualify for a home office deduction.
 - **Tax year projection** — scales your year-to-date spending to a full-year estimate, checks it
@@ -73,6 +81,8 @@ current figures at [sars.gov.za](https://www.sars.gov.za)** before relying on th
 - The tax projection is a straight-line annualisation (year-to-date ÷ days elapsed × days in year).
   It has no idea about bonuses, once-off donations, or seasonal spending, so it's a steer, not a
   forecast.
+- Rental income is whatever you tag as Rental Income in your bank records, which is cash received. Tax is on
+  income received or accrued, whichever comes first, so add any income you are owed but have not been paid.
 - The additional medical expenses tax credit, disability-related rules, provisional tax, and capital
   gains are out of scope for now — see [Roadmap](#roadmap).
 
