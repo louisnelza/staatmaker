@@ -591,7 +591,9 @@ function computeBracketTax(income, brackets){
   if(income<=0) return 0;
   let b = brackets[0];
   for(const br of brackets){ if(income>=br.min) b = br; else break; }
-  return b.base + b.rate*(income-b.min);
+  // SARS bands are "the amount above R237 100" etc., i.e. min-1 for every band after the first
+  const floor = b.min > 0 ? b.min - 1 : 0;
+  return b.base + b.rate*(income-floor);
 }
 
 async function saveProjectionSettings(){
@@ -1055,6 +1057,35 @@ function parseStandardBankAfrikaans(fullText, bank){
   return out;
 }
 
+
+// Standard Bank credit card statements (English, two-column "Transaction details" layout).
+// Debits are printed positive and credits negative, so signs are flipped to match bank-account CSVs
+// (spend negative, payments positive). Balance / closing-balance lines are not transactions.
+const MONTHS_EN = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+function isStandardBankCard(fullText){
+  const t = fullText.toUpperCase();
+  return t.includes('CREDIT LIMIT') && t.includes('TRANSACTION DETAILS') && t.includes('CLOSING BALANCE');
+}
+function parseStandardBankCard(fullText, bank){
+  const out = [];
+  const re = /(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2})\s+(.+?)\s+(-?\d[\d,]*\.\d{2})(?=\s|$)/g;
+  const seen = fullText.indexOf('Transaction details');
+  const body = seen >= 0 ? fullText.slice(seen) : fullText;
+  for(const line of body.split('\n')){
+    for(const m of line.matchAll(re)){
+      const mon = MONTHS_EN[m[2].toLowerCase()];
+      if(!mon) continue;
+      const desc = m[4].replace(/\s{2,}/g,' ').trim();
+      if(/balance brought forward|closing balance|opening balance/i.test(desc)) continue;
+      const raw = parseAmount(m[5]);
+      if(raw === null) continue;
+      const {category, taxLabel} = categorise(desc);
+      out.push({id:idGen(), date:`20${m[3]}-${mon}-${m[1].padStart(2,'0')}`, desc, descEN:desc, bank, amount:-raw, category, taxLabel});
+    }
+  }
+  return out;
+}
+
 async function handlePDFFile(file, bank){
   const pdf = await loadPdfWithPassword(file);
   if(!pdf) return null; // cancelled, or a non-password error
@@ -1073,6 +1104,10 @@ async function handlePDFFile(file, bank){
 
   if(isStandardBankAfrikaans(fullText)){
     return parseStandardBankAfrikaans(fullText, bank);
+  }
+
+  if(isStandardBankCard(fullText)){
+    return parseStandardBankCard(fullText, bank);
   }
 
   const lines = fullText.split('\n');
@@ -1095,36 +1130,59 @@ async function handlePDFFile(file, bank){
     let desc = line.replace(dateRe,'').replace(new RegExp(amtRe.source,'gi'),'').trim();
     desc = desc.replace(/\s{2,}/g,' ');
     if(!desc) continue;
+    if(/balance brought forward|closing balance|opening balance|saldo oorgebring/i.test(desc)) continue;
     const {category, taxLabel} = categorise(desc);
     out.push({id:idGen(), date:parseDate(dm[1]), desc, descEN:desc, bank, amount:amt, category, taxLabel});
   }
   return out;
 }
 
+function txnKey(t){ return [t.bank,t.date,String(t.desc).replace(/\s+/g,' ').trim().toUpperCase(),Number(t.amount).toFixed(2)].join('|'); }
+
 async function processFiles(fileList, bank){
   const newTxns = [];
-  let skipped = 0;
+  let skipped = 0, dupes = 0;
+  const unsupported = [];
+  // Multiset of rows already held: a repeat inside one file is a genuine repeat purchase, but a row
+  // already imported from an earlier (overlapping) statement is a duplicate and is dropped.
+  const held = {};
+  transactions.forEach(t=>{ const k=txnKey(t); held[k]=(held[k]||0)+1; });
   for(const file of fileList){
     let parsed = [];
-    if(file.name.toLowerCase().endsWith('.csv')){
+    const lname = file.name.toLowerCase();
+    if(lname.endsWith('.csv')){
       parsed = await handleCSVFile(file, bank);
-    }else if(file.name.toLowerCase().endsWith('.pdf')){
+    }else if(lname.endsWith('.pdf')){
       parsed = await handlePDFFile(file, bank);
       if(parsed === null){ skipped++; continue; }
+    }else{
+      unsupported.push(file.name); continue;
     }
-    newTxns.push(...parsed);
-    files.push({name:file.name, bank, count:parsed.length, importedAt:new Date().toISOString()});
+    const budget = Object.assign({}, held);
+    const fresh = [];
+    for(const t of parsed){
+      const k = txnKey(t);
+      if(budget[k] > 0){ budget[k]--; dupes++; } else fresh.push(t);
+    }
+    fresh.forEach(t=>{ const k=txnKey(t); held[k]=(held[k]||0)+1; });
+    newTxns.push(...fresh);
+    files.push({name:file.name, bank, count:fresh.length, importedAt:new Date().toISOString()});
   }
   transactions.push(...newTxns);
   await saveTransactions();
   await saveFiles();
   renderAll();
-  if(skipped>0){
-    alert(`${skipped} file(s) were skipped — no password was entered (or it kept failing). Drop the file in again to retry.`);
+  const today = new Date().toISOString().slice(0,10);
+  const future = newTxns.filter(t=>t.date > today).length;
+  const notes = [];
+  if(skipped>0) notes.push(`${skipped} file(s) were skipped — no password was entered (or it kept failing). Drop the file in again to retry.`);
+  if(unsupported.length) notes.push(`Not imported (only .csv and .pdf are supported): ${unsupported.join(', ')}. Save Excel (.xls/.xlsx) statements as CSV first.`);
+  if(dupes>0) notes.push(`${dupes} row(s) were already imported from an earlier statement and were skipped.`);
+  if(future>0) notes.push(`${future} imported row(s) are dated in the future — check the year in the source file.`);
+  if(newTxns.length===0 && skipped===0 && dupes===0 && unsupported.length===0 && fileList.length>0){
+    notes.push('No transactions could be detected in that file. PDF layouts vary a lot between banks — you can still add rows manually, or try exporting a CSV from your bank\'s app/site instead, which parses more reliably.');
   }
-  if(newTxns.length===0 && skipped===0 && fileList.length>0){
-    alert('No transactions could be detected in that file. PDF layouts vary a lot between banks — you can still add rows manually, or try exporting a CSV from your bank\'s app/site instead, which parses more reliably.');
-  }
+  if(notes.length) alert(notes.join('\n\n'));
 }
 
 /* ---------------- RENDER ---------------- */
