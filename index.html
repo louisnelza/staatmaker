@@ -1004,7 +1004,7 @@ function translateDesc(desc){
 
 const SB_STOP_MARKERS = [
   'VERIFIEER ASSEBLIEF','BESOEK ASSEBLIEF','DIE STANDARD BANK VAN','BTW-REG','ONS ONDERSKRYF',
-  'KLIENTESORGSENTRUM','EPOS:','BANKSTAAT','ACHIEVA TJEKREKENING','BLADSY','STAAT VAN','MAANDELIKS',
+  'KLIENTESORGSENTRUM','EPOS:','BANKSTAAT','ACHIEVA TJEKREKENING','BLADSY','STAAT VAN','MAANDELIKS E-POS',
   'REKENINGNOMMER','MAANDEINDESALDO','BESONDERHEDE','OPSOMMING','PERKSTRUKTUUR',
   'OORTREKKINGSBESONDERHEDE','HIERDIE FOOIE SLUIT BTW','SALDO OORGEBRING','STAATNOMMER',
   'STAATFREKWENSIE','P.BUS','MARSHALLTOWN'
@@ -1034,6 +1034,10 @@ function parseStandardBankAfrikaans(fullText, bank){
   const lines = fullText.split('\n').map(l=>l.trim()).filter(Boolean);
   const out = [];
   let current = null;
+  // Every row prints the running balance, so each row's amount must take the previous balance to this one.
+  // A jump means a row was missed (or misread); it is reported on import rather than silently imported.
+  let prevBalance = null, prevDate = null;
+  const breaks = [];
   for(const line of lines){
     const upper = line.toUpperCase();
     if(SB_STOP_MARKERS.some(mk=>upper.includes(mk))){ current = null; continue; }
@@ -1046,6 +1050,12 @@ function parseStandardBankAfrikaans(fullText, bank){
       // pick the year matching whichever end of the statement period this month belongs to
       const year = (month === years.endMonth) ? years.endYear : (month === years.startMonth) ? years.startYear : years.endYear;
       const date = `${year}-${month}-${day}`;
+      const balance = parseAmount(m[5]);
+      if(prevBalance !== null && balance !== null){
+        const gap = round2(balance - (prevBalance + amt));
+        if(Math.abs(gap) >= 0.005) breaks.push({from:prevDate, to:date, gap});
+      }
+      prevBalance = balance; prevDate = date;
       const {category, taxLabel} = categorise(rawDesc);
       current = {id:idGen(), date, desc:rawDesc, descEN:translateDesc(rawDesc), bank, amount:amt, category, taxLabel};
       out.push(current);
@@ -1057,6 +1067,8 @@ function parseStandardBankAfrikaans(fullText, bank){
       current.taxLabel = recat.taxLabel;
     }
   }
+  out.reconcile = {checked:true, ok:breaks.length===0, breaks,
+    problem: breaks.map(b=>`running balance is out by ${fmtR(b.gap)} between ${b.from} and ${b.to}, so a row there is probably missing`).join('; ')};
   return out;
 }
 
@@ -1105,11 +1117,12 @@ function parseStandardBankCard(fullText, bank){
 
 // Card balances are amounts owed, so closing = brought forward + spend - payments = opening - sum(amount).
 function reconcileCard(rows, opening, closing){
-  if(opening === null || closing === null) return {checked:false};
+  if(opening === null || closing === null) return {checked:false, problem:'balance brought forward or closing balance not found, so the rows could not be checked'};
   const sum = rows.reduce((s,t)=>s+t.amount, 0);
   const expected = round2(opening - sum);
   const difference = round2(closing - expected);
-  return {checked:true, ok: Math.abs(difference) < 0.005, opening, closing, expected, difference};
+  return {checked:true, ok: Math.abs(difference) < 0.005, opening, closing, expected, difference,
+    problem:`imported rows leave ${fmtR(difference)} unaccounted for (closing balance ${fmtR(closing)}, rows give ${fmtR(expected)})`};
 }
 
 async function handlePDFFile(file, bank){
@@ -1185,10 +1198,7 @@ async function processFiles(fileList, bank){
     }else{
       unsupported.push(file.name); continue;
     }
-    if(parsed.reconcile){
-      if(!parsed.reconcile.checked) unreconciled.push(`${file.name}: balance brought forward or closing balance not found, so the rows could not be checked`);
-      else if(!parsed.reconcile.ok) unreconciled.push(`${file.name}: imported rows leave ${fmtR(parsed.reconcile.difference)} unaccounted for (closing balance ${fmtR(parsed.reconcile.closing)}, rows give ${fmtR(parsed.reconcile.expected)})`);
-    }
+    if(parsed.reconcile && !(parsed.reconcile.checked && parsed.reconcile.ok)) unreconciled.push(`${file.name}: ${parsed.reconcile.problem}`);
     const budget = Object.assign({}, held);
     const fresh = [];
     for(const t of parsed){
@@ -1208,7 +1218,7 @@ async function processFiles(fileList, bank){
   const notes = [];
   if(skipped>0) notes.push(`${skipped} file(s) were skipped — no password was entered (or it kept failing). Drop the file in again to retry.`);
   if(unsupported.length) notes.push(`Not imported (only .csv and .pdf are supported): ${unsupported.join(', ')}. Save Excel (.xls/.xlsx) statements as CSV first.`);
-  if(unreconciled.length) notes.push(`Card statement doesn't reconcile. Check the imported rows against the statement:\n${unreconciled.join('\n')}`);
+  if(unreconciled.length) notes.push(`Statement doesn't reconcile. Check the imported rows against the statement:\n${unreconciled.join('\n')}`);
   if(dupes>0) notes.push(`${dupes} row(s) were already imported from an earlier statement and were skipped.`);
   if(future>0) notes.push(`${future} imported row(s) are dated in the future — check the year in the source file.`);
   if(newTxns.length===0 && skipped===0 && dupes===0 && unsupported.length===0 && unreconciled.length===0 && fileList.length>0){

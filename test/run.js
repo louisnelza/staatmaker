@@ -161,6 +161,29 @@ t('card: missing closing balance -> not checked', () => {
   assert.strictEqual(parseCard(card.replace(/.*Closing balance.*\n/, '')).reconcile.checked, false);
 });
 
+/* ---------- Standard Bank Afrikaans current account parser ---------- */
+const af = fixture('standard-bank-afrikaans.txt');
+const parseAf = text => R('parseStandardBankAfrikaans')(text, 'SB 4236');
+const noFee = af.replace(/VASTE MAANDELIKSE FOOI.*\n/, '');
+t('afrikaans: detected as the Afrikaans layout, not as a card statement', () => {
+  assert(R('isStandardBankAfrikaans')(af)); assert(!R('isStandardBankCard')(af));
+});
+t('afrikaans: rows, signs, years, continuation lines; header lines skipped', () => {
+  assert.deepStrictEqual(plain(parseAf(af).map(r => [r.date, r.desc, r.amount])), [
+    ['2024-08-14', 'KRUIDENIERS VOORBEELD', -250], ['2024-08-25', 'SALARIS VOORBEELD MPY VERWYSING 12345', 5000],
+    ['2024-08-31', 'OORTREKKING-DIENSGELD', -20], ['2024-08-31', 'VASTE MAANDELIKSE FOOI', -115],
+    ['2024-09-02', 'VERSEKERING VOORBEELD', -400], ['2024-09-05', 'FOOI ONMIDDELLIKE BETALING', -10]]);
+});
+t('afrikaans: the fixed monthly fee is not swallowed by the "Maandeliks E-pos" header marker', () => {
+  assert(parseAf(af).some(r => r.desc === 'VASTE MAANDELIKSE FOOI'));
+});
+t('afrikaans: running balance reconciles', () => { const r = plain(parseAf(af).reconcile); assert(r.checked && r.ok, JSON.stringify(r)); });
+t('afrikaans: a missing row shows up as a balance jump with its dates', () => {
+  const r = plain(parseAf(noFee).reconcile);
+  assert(!r.ok); assert.strictEqual(r.breaks.length, 1);
+  assert.deepStrictEqual([r.breaks[0].from, r.breaks[0].to], ['2024-08-31', '2024-09-02']); close(r.breaks[0].gap, -115);
+});
+
 /* ---------- Import: duplicates, warnings, reconciliation ---------- */
 const mk = (d, desc, a) => ({id:Math.random() + '', date:d, desc, bank:'B', amount:a, category:'Uncategorised'});
 const csv = {
@@ -168,7 +191,7 @@ const csv = {
   'b.csv':[mk('2026-03-01', 'COFFEE', -30), mk('2026-03-01', 'COFFEE', -30), mk('2026-03-05', 'shop ', -100), mk('2026-04-02', 'NEW', -50)],
   'f.csv':[mk('2099-01-01', 'X', -1)]};
 ctx.__csv = csv; ctx.__pdf = {};
-R('handleCSVFile = async f => __csv[f.name].map(x=>Object.assign({}, x)); handlePDFFile = async f => parseStandardBankCard(__pdf[f.name], "SB Card");');
+R('handleCSVFile = async f => __csv[f.name].map(x=>Object.assign({}, x)); handlePDFFile = async f => (isStandardBankAfrikaans(__pdf[f.name]) ? parseStandardBankAfrikaans : parseStandardBankCard)(__pdf[f.name], "SB");');
 const importFiles = async (...names) => {
   alerts.length = 0; ctx.__names = names;
   await R('processFiles(__names.map(name=>({name})), "B")');
@@ -196,6 +219,13 @@ t('import: card statement that does not reconcile is warned, with the difference
   R('transactions=[]; files=[]'); ctx.__pdf['bad.pdf'] = card.replace('Page 1 of 2', '25 Mar 26 REWARDS ADJUSTMENT 500.00');
   const msg = await importFiles('bad.pdf');
   assert(msg.includes("doesn't reconcile") && msg.includes('bad.pdf') && /500[.,]00/.test(msg), msg);
+});
+t('import: Afrikaans statement with a balance jump is warned, with the dates', async () => {
+  R('transactions=[]; files=[]'); ctx.__pdf['af-ok.pdf'] = af; ctx.__pdf['af-bad.pdf'] = noFee;
+  assert(!(await importFiles('af-ok.pdf')).includes('reconcile'));
+  R('transactions=[]; files=[]');
+  const msg = await importFiles('af-bad.pdf');
+  assert(msg.includes("doesn't reconcile") && msg.includes('af-bad.pdf') && /115[.,]00/.test(msg) && msg.includes('2024-08-31 and 2024-09-02'), msg);
 });
 t('import: card statement without balances says it could not be checked', async () => {
   R('transactions=[]; files=[]'); ctx.__pdf['nobal.pdf'] = card.replace(/.*Closing balance.*\n/, '');
