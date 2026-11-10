@@ -1,17 +1,23 @@
 SYNTHETIC FIXTURE - fabricated merchants, dates and amounts in the Standard Bank credit card layout.
-Contains no real statement data.
+Contains no real statement data. Line shapes follow what pdf.js extracts from a real statement.
 STANDARD BANK CREDIT CARD STATEMENT
+Page 1 of 2
 Credit limit 50,000.00
+Balance brought forward 5,000.00
+Closing balance 3,003.15
+Payment due 25 Apr 26 Minimum payment due 150.00
 Transaction details
+Account 9999 **** **** 9999
 Date Description Amount
-01 Mar 26 Balance brought forward 5,000.00
+1 Mar 26 Balance Brought Forward 5,000.00
+Date Description Amount
 03 Mar 26 WOOLWORTHS CAPE TOWN 450.25
 05 Mar 26 NETFLIX.COM USD 15.99 289.40
 07 Mar 26 PAYMENT THANK YOU -5,000.00
 09 Mar 26 DISCHEM PHARMACY 1,234.50 10 Mar 26 ENGEN GARAGE 800.00
 Page 1 of 2
-31 Mar 26 Balance brought forward 2,774.15
 02 Apr 26 TAKEALOT ONLINE 349.00
 04 Apr 26 TAKEALOT REFUND -120.00
-05 Apr 26 Closing balance 3,003.15
+Closing balance 3,003.15
+* * * * *
 Page 2 of 2

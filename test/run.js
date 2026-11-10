@@ -127,12 +127,12 @@ t('card: rows, signs, rand amount on foreign lines, two-column lines, balance li
     ['2026-03-07', 'PAYMENT THANK YOU', 5000], ['2026-03-09', 'DISCHEM PHARMACY', -1234.50],
     ['2026-03-10', 'ENGEN GARAGE', -800], ['2026-04-02', 'TAKEALOT ONLINE', -349], ['2026-04-04', 'TAKEALOT REFUND', 120]]);
 });
-t('card: reconciles using the first brought-forward and the last closing balance', () => {
+t('card: reconciles from the dated brought-forward row to the undated closing balance line', () => {
   const r = plain(parseCard(card).reconcile);
   assert(r.checked && r.ok, JSON.stringify(r)); close(r.opening, 5000); close(r.closing, 3003.15);
 });
 t('card: an unrecognised stray line shows up as a difference', () => {
-  const bad = card.replace('Page 1 of 2', '25 Mar 26 REWARDS ADJUSTMENT 500.00');
+  const bad = card.replace('Page 1 of 2\n02 Apr', '25 Mar 26 REWARDS ADJUSTMENT 500.00\n02 Apr');
   const r = plain(parseCard(bad).reconcile);
   assert(r.checked && !r.ok); close(r.difference, -500);
 });
@@ -141,12 +141,20 @@ t('card: a running-balance column read as the amount shows up as a difference', 
   const r = plain(parseCard(bad).reconcile); assert(r.checked && !r.ok); close(r.difference, -5000);
 });
 t('card: summary wording inside the table is skipped', () => {
-  const withSummary = card.replace('Page 1 of 2', '25 Apr 26 Minimum payment due 500.00\n25 Apr 26 Total amount due 3,003.15\n10 Mar 26 Interest rate 21.00 22.50');
+  const withSummary = card.replace('Page 1 of 2\n02 Apr', '25 Apr 26 Minimum payment due 500.00\n25 Apr 26 Total amount due 3,003.15\n10 Mar 26 Interest rate 21.00 22.50\n02 Apr');
   const rows = parseCard(withSummary);
   assert.strictEqual(rows.length, 7, rows.map(r => r.desc).join(', ')); assert(rows.reconcile.ok);
 });
+t('card: summary box above the table is not used, and a repeated brought-forward on a later page is ignored', () => {
+  const rows = parseCard(card.replace('Page 1 of 2\n02 Apr', 'Page 1 of 2\n31 Mar 26 Balance brought forward 2,774.15\n02 Apr'));
+  assert.strictEqual(rows.length, 7); assert(rows.reconcile.ok); close(rows.reconcile.opening, 5000);
+});
+t('card: a dated closing balance line is also recognised', () => {
+  const rows = parseCard(card.replace('Closing balance 3,003.15\n*', '05 Apr 26 Closing balance 3,003.15\n*'));
+  assert(rows.reconcile.checked && rows.reconcile.ok);
+});
 t('card: balance carried forward is not a transaction', () => {
-  const rows = parseCard(card.replace('Page 1 of 2', '31 Mar 26 Balance carried forward 2,774.15'));
+  const rows = parseCard(card.replace('Page 1 of 2\n02 Apr', '31 Mar 26 Balance carried forward 2,774.15\n02 Apr'));
   assert.strictEqual(rows.length, 7); assert(rows.reconcile.ok);
 });
 t('card: nothing after the closing balance is imported', () => {
@@ -154,11 +162,11 @@ t('card: nothing after the closing balance is imported', () => {
   assert.strictEqual(rows.length, 7); assert(rows.reconcile.ok);
 });
 t('card: real merchants with similar words are kept', () => {
-  const rows = parseCard(card.replace('Page 1 of 2', '12 Mar 26 CREDIT CORNER CAFE 55.00\n13 Mar 26 DUE SOUTH COFFEE 40.00'));
+  const rows = parseCard(card.replace('Page 1 of 2\n02 Apr', '12 Mar 26 CREDIT CORNER CAFE 55.00\n13 Mar 26 DUE SOUTH COFFEE 40.00\n02 Apr'));
   assert.strictEqual(rows.length, 9); assert(!rows.reconcile.ok); close(rows.reconcile.difference, -95);
 });
 t('card: missing closing balance -> not checked', () => {
-  assert.strictEqual(parseCard(card.replace(/.*Closing balance.*\n/, '')).reconcile.checked, false);
+  assert.strictEqual(parseCard(card.replace(/Closing balance 3,003.15\n\*/, '*')).reconcile.checked, false);
 });
 
 /* ---------- Standard Bank Afrikaans current account parser ---------- */
@@ -216,7 +224,7 @@ t('import: reconciling card statement gives no warning', async () => {
   const msg = await importFiles('card.pdf'); assert.strictEqual(R('transactions.length'), 7); assert(!msg.includes('reconcile'), msg);
 });
 t('import: card statement that does not reconcile is warned, with the difference', async () => {
-  R('transactions=[]; files=[]'); ctx.__pdf['bad.pdf'] = card.replace('Page 1 of 2', '25 Mar 26 REWARDS ADJUSTMENT 500.00');
+  R('transactions=[]; files=[]'); ctx.__pdf['bad.pdf'] = card.replace('Page 1 of 2\n02 Apr', '25 Mar 26 REWARDS ADJUSTMENT 500.00\n02 Apr');
   const msg = await importFiles('bad.pdf');
   assert(msg.includes("doesn't reconcile") && msg.includes('bad.pdf') && /500[.,]00/.test(msg), msg);
 });
@@ -228,7 +236,7 @@ t('import: Afrikaans statement with a balance jump is warned, with the dates', a
   assert(msg.includes("doesn't reconcile") && msg.includes('af-bad.pdf') && /115[.,]00/.test(msg) && msg.includes('2024-08-31 and 2024-09-02'), msg);
 });
 t('import: card statement without balances says it could not be checked', async () => {
-  R('transactions=[]; files=[]'); ctx.__pdf['nobal.pdf'] = card.replace(/.*Closing balance.*\n/, '');
+  R('transactions=[]; files=[]'); ctx.__pdf['nobal.pdf'] = card.replace(/Closing balance 3,003.15\n\*/, '*');
   assert((await importFiles('nobal.pdf')).includes('could not be checked'));
 });
 

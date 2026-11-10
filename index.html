@@ -1093,6 +1093,14 @@ function parseStandardBankCard(fullText, bank){
   let opening = null, closing = null;
   for(const line of body.split('\n')){
     if(closing !== null) break; // the closing balance ends the transaction table; anything after it is summary or footer
+    // On real statements the closing balance line has no date ("Closing balance   1,234.56"), so the
+    // transaction pattern below never sees it; the brought-forward line is dated, but accept either form.
+    const undated = line.match(/^\s*(closing balance|balance brought forward)\s+(-?\d[\d,]*\.\d{2}-?)\s*$/i);
+    if(undated){
+      const v = parseAmount(undated[2]);
+      if(/closing/i.test(undated[1])) closing = v; else if(opening === null) opening = v;
+      continue;
+    }
     for(const m of line.matchAll(re)){
       const mon = MONTHS_EN[m[2].toLowerCase()];
       if(!mon) continue;
