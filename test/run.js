@@ -169,6 +169,19 @@ t('card: missing closing balance -> not checked', () => {
   assert.strictEqual(parseCard(card.replace(/Closing balance 3,003.15\n\*/, '*')).reconcile.checked, false);
 });
 
+/* ---------- Card statement categorisation rules ---------- */
+const cat = d => R('categorise')(d).category;
+for (const [desc, want] of [
+  ['# International Txn Fee', 'Bank Fees'], ['# Fee - E-Comm Decline', 'Bank Fees'],
+  ['# Electronic Pmt/trnsf Fee', 'Bank Fees'], ['# Initiation Fee', 'Bank Fees'], ['# Initiation Fee Rev', 'Bank Fees'],
+  ['Finance Charge', 'Interest & Bank Charges'], ['Cash Finance Charge', 'Interest & Bank Charges'],
+  ['Cr Protection Policy', 'Insurance (Short-term)'],
+  ['Apo Payment, Thank You', 'Transfers'], ['PAYMENT THANK YOU', 'Transfers'],
+  ['X Corp. Paid Features', 'Subscriptions & Entertainment'], ['Rtmc', 'Fuel & Transport'],
+  ['APEX CORP SUPPLIES', 'Uncategorised']]) {
+  t(`rules: "${desc}" -> ${want}`, () => assert.strictEqual(cat(desc), want));
+}
+
 /* ---------- Standard Bank Afrikaans current account parser ---------- */
 const af = fixture('standard-bank-afrikaans.txt');
 const parseAf = text => R('parseStandardBankAfrikaans')(text, 'SB 4236');
