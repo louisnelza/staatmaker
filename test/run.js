@@ -26,7 +26,7 @@ const tests = [];
 const t = (name, fn) => tests.push([name, fn]);
 const close = (a, b, msg) => assert(Math.abs(a - b) < 0.005, `${msg || ''} got ${a}, want ${b}`);
 const plain = v => JSON.parse(JSON.stringify(v)); // VM objects come from another realm
-const setTx = a => { ctx.__a = a; R('transactions = __a.map((x,i)=>Object.assign({id:"t"+i, bank:"B", desc:"d"+i, date:"2026-04-01"}, x))'); };
+const setTx = a => { R('viewYear = "all"'); ctx.__a = a; R('transactions = __a.map((x,i)=>Object.assign({id:"t"+i, bank:"B", desc:"d"+i, date:"2026-04-01"}, x))'); };
 const setRS = o => { ctx.__o = o; R('rentalSettings = Object.assign(RENTAL_SETTINGS_DEFAULT(), __o)'); };
 const money = s => parseFloat(s.replace(/[^\d,.-]/g, '').replace(/\s/g, '').replace(/\.(?=\d{3})/g, '').replace(',', '.'));
 
@@ -79,6 +79,76 @@ t('rental: date filter', () => {
 });
 t('rental: no areas -> warning, apportioned costs count as 0', () => {
   scenario(); setRS({}); const r = R('computeRental()'); assert(r.needsAreas); close(r.totalDeduction, 3500, 'only 100% cottage costs');
+});
+
+/* ---------- Tax-year filter and own-account transfers ---------- */
+const currentTY = R('taxYearOf(ymd(new Date()))');
+const inTY = (y, md = '06-15') => `${y - 1}-${md}`; // a date inside tax year y (Mar..Dec part)
+t('tax year: 28 Feb belongs to the year ending then, 1 Mar starts the next', () => {
+  assert.strictEqual(R('taxYearOf("2026-02-28")'), 2026); assert.strictEqual(R('taxYearOf("2026-03-01")'), 2027);
+  assert.strictEqual(R('taxYearOf("2024-02-29")'), 2024); assert.strictEqual(R('taxYearOf("bad")'), null);
+});
+t('dateInRange: last day of February is inside the tax year (was dropped in UTC+ timezones)', () => {
+  const r = d => R(`dateInRange("${d}", new Date(2025,2,1), new Date(2026,2,0))`);
+  assert(r('2025-03-01')); assert(r('2026-02-28')); assert(!r('2025-02-28')); assert(!r('2026-03-01')); assert(!r(''));
+});
+t('tax year: default is the latest completed year with data, else the latest with data', () => {
+  R('viewYear = null');
+  ctx.__a = [inTY(currentTY), inTY(currentTY - 1), inTY(currentTY - 2)];
+  R('transactions = __a.map((d,i)=>({id:"y"+i, date:d, amount:-1, category:"Groceries"}))');
+  assert.strictEqual(R('effectiveViewYear()'), currentTY - 1);
+  R('transactions = transactions.slice(0,1)'); assert.strictEqual(R('effectiveViewYear()'), currentTY);
+  R('transactions = []'); assert.strictEqual(R('effectiveViewYear()'), 'all');
+});
+t('tax year: an explicit choice is kept, saved and restored from backup', async () => {
+  await R('setViewYear("2025")'); assert.strictEqual(R('viewYear'), 2025);
+  R('viewYear = null'); await R('loadViewYear()'); assert.strictEqual(R('viewYear'), 2025);
+  await R('setViewYear("all")'); assert.strictEqual(R('viewYear'), 'all');
+  ctx.__f = {text:async () => JSON.stringify({version:1, transactions:[], viewYear:2024})};
+  await R('restoreBackup(__f)'); assert.strictEqual(R('viewYear'), 2024);
+  ctx.__f = {text:async () => JSON.stringify({version:1, transactions:[]})};
+  await R('restoreBackup(__f)'); assert.strictEqual(R('viewYear'), null, 'old backups fall back to the default year');
+});
+const yearScenario = () => {
+  R('viewYear = 2026');
+  ctx.__a = [
+    {date:'2025-06-01', amount:20000, category:'Income'}, {date:'2025-06-02', amount:-300, category:'Groceries'},
+    {date:'2025-07-01', amount:-1500, category:'Retirement Annuity', taxLabel:'Retirement Annuity'},
+    {date:'2025-07-05', amount:-4000, category:'Transfers - Own Accounts'}, {date:'2025-07-06', amount:4000, category:'Transfers - Own Accounts'},
+    {date:'2025-08-01', amount:-700, category:'Transfers'},
+    {date:'2026-03-05', amount:-1500, category:'Retirement Annuity', taxLabel:'Retirement Annuity'},
+    {date:'2024-12-24', amount:-999, category:'Groceries'}, {date:'not a date', amount:-5, category:'Groceries'}];
+  R('transactions = __a.map((x,i)=>Object.assign({id:"s"+i, bank:"B", desc:"d"+i}, x))');
+};
+t('stats: only the selected year, own-account transfers left out of in/out, other transfers kept', () => {
+  yearScenario(); R('renderStats()');
+  const vals = [...els['stat-row'].innerHTML.matchAll(/class="value"[^>]*>([^<]*)</g)].map(m => m[1]);
+  close(money(vals[0]), 20000, 'total in'); close(money(vals[1]), 2500, 'total spent (300 + 1500 + 700)');
+  assert.strictEqual(vals[2], '6', 'transactions in year'); close(money(vals[3]), 1500, 'tax-relevant');
+});
+t('tax tab: only the selected year, and the year is named on the summary', () => {
+  yearScenario(); R('renderTax()'); const h = els['tax-receipt'].innerHTML;
+  assert(/Retirement Annuity<\/span><span>R\s?1[\s,.\u00a0]?500[.,]00/.test(h), h); assert(h.includes('2026 TAX YEAR'));
+});
+t('categories tab: own-account transfers left out', () => {
+  yearScenario(); ctx.Chart = function(){ return {destroy(){}}; }; R('catChartInstance = null; renderCategories()');
+  const h = els['cat-body'].innerHTML; assert(!h.includes('Own Accounts'), h); assert(h.includes('Groceries') && h.includes('<td>Transfers</td>'));
+});
+t('year bar: lists years with data plus All, and says how many rows are outside the year', () => {
+  yearScenario(); R('renderYearBar()');
+  const opts = els['view-year'].innerHTML; assert(opts.includes('2026 tax year') && opts.includes('2027 tax year') && opts.includes('2025 tax year') && opts.includes('All imported rows'));
+  assert(/value="2026" selected/.test(opts));
+  const note = els['view-year-note'].textContent; assert(note.includes('3 imported row(s) fall outside') && note.includes('1 row(s) have no valid date'), note);
+});
+t('rental: follows the selected year; mixing years under All is warned', () => {
+  setRS({cottageArea:'60', propertyArea:'240', monthsLet:'12'});
+  ctx.__a = [{date:'2025-06-01', category:'Rental Income', amount:8000}, {date:'2026-06-01', category:'Rental Income', amount:9000},
+             {date:'2025-06-02', category:'Rental - Agent Commission', amount:-1000}];
+  R('transactions = __a.map((x,i)=>Object.assign({id:"r"+i, bank:"B", desc:"d"+i}, x))');
+  R('viewYear = 2026'); close(R('computeRental()').income, 8000); close(R('computeRental()').totalDeduction, 1000);
+  R('viewYear = 2027'); close(R('computeRental()').income, 9000); close(R('computeRental()').totalDeduction, 0);
+  R('renderRental()'); assert(!els['rs-warnings'].innerHTML.includes('mix'));
+  R('viewYear = "all"'); R('renderRental()'); assert(els['rs-warnings'].innerHTML.includes('mix 2 tax years'));
 });
 
 /* ---------- Rendering ---------- */
@@ -176,7 +246,7 @@ for (const [desc, want] of [
   ['# Electronic Pmt/trnsf Fee', 'Bank Fees'], ['# Initiation Fee', 'Bank Fees'], ['# Initiation Fee Rev', 'Bank Fees'],
   ['Finance Charge', 'Interest & Bank Charges'], ['Cash Finance Charge', 'Interest & Bank Charges'],
   ['Cr Protection Policy', 'Insurance (Short-term)'],
-  ['Apo Payment, Thank You', 'Transfers'], ['PAYMENT THANK YOU', 'Transfers'],
+  ['Apo Payment, Thank You', 'Transfers - Own Accounts'], ['PAYMENT THANK YOU', 'Transfers - Own Accounts'],
   ['X Corp. Paid Features', 'Subscriptions & Entertainment'], ['Rtmc', 'Fuel & Transport'],
   ['APEX CORP SUPPLIES', 'Uncategorised']]) {
   t(`rules: "${desc}" -> ${want}`, () => assert.strictEqual(cat(desc), want));
