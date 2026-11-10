@@ -736,10 +736,13 @@ function renderProjection(){
       </div>`;
   }
 
-  // Rental projection (cottage share applied; manual bond interest is an annual figure, so it is left out here)
+  // Rental projection (cottage share applied). The lender-certificate bond interest is an annual
+  // figure, so only the elapsed part of the year counts towards YTD; scaling then gives the full year.
   const rentalYTD = computeRental(t=>dateInRange(t.date, start, effectiveToday), {manual:false});
+  const bondAnnual = round2((parseFloat(rentalSettings.bondInterest) || 0) * rentalShare().share);
+  const bondYTD = bondAnnual * elapsedDays / totalDays;
   const rentalIncomeYTD = rentalYTD.income;
-  const rentalExpenseYTD = rentalYTD.totalDeduction;
+  const rentalExpenseYTD = rentalYTD.totalDeduction + bondYTD;
   const rentalEl = document.getElementById('proj-rental');
   if(rentalIncomeYTD===0 && rentalExpenseYTD===0){
     rentalEl.innerHTML = '';
