@@ -1,6 +1,6 @@
 # Staatmaker — SA Tax Spending Organiser
 
-A single-file, browser-only tool for South African individual taxpayers to turn bank statements
+A browser-only tool for South African individual taxpayers to turn bank statements
 (CSV or PDF, from multiple banks) into categorised spending, tax-relevant deduction totals, and a
 year-to-date tax projection — without any of it leaving your computer.
 
@@ -52,7 +52,8 @@ sorting so you can spend your time checking the result, not building it.
 
 No build step, no install. Either:
 
-1. **Just open it.** Download `index.html` and open it directly in a browser.
+1. **Just open it.** Download or clone this repo and open `index.html` directly in a browser. Keep
+   `styles.css` and the `js/` folder next to it, because the page loads them from there.
 2. **Or serve it locally** (some browsers are stricter about local file access than others):
    ```bash
    npx http-server .

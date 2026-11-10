@@ -1,11 +1,10 @@
 // Run with: node test/run.js
-// Loads the app script from index.html into a VM with a stubbed DOM and localStorage, then checks the
+// Loads js/data.js and js/app.js into a VM with a stubbed DOM and localStorage, then checks the
 // tax, rental, card-statement and import logic. Fixtures under test/fixtures are synthetic only.
 const fs = require('fs'), vm = require('vm'), path = require('path'), assert = require('assert');
 const root = path.join(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].pop()[1];
-const code = script.slice(0, script.indexOf('/* ---------------- EVENTS')).replace(/\bconst\b/g, 'var').replace(/\blet\b/g, 'var');
+const script = ['js/data.js', 'js/app.js'].map(f => fs.readFileSync(path.join(root, f), 'utf8')).join('\n');
+const code = script.replace(/\bconst\b/g, 'var').replace(/\blet\b/g, 'var');
 const fixture = name => fs.readFileSync(path.join(__dirname, 'fixtures', name), 'utf8');
 
 const store = {}, alerts = [], els = {};
