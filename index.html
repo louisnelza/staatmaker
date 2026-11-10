@@ -1065,6 +1065,8 @@ function parseStandardBankAfrikaans(fullText, bank){
 // Debits are printed positive and credits negative, so signs are flipped to match bank-account CSVs
 // (spend negative, payments positive). Balance / closing-balance lines are not transactions.
 const MONTHS_EN = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+// Statement-summary wording that can sit next to a date and an amount but is never a transaction.
+const CARD_NOT_TRANSACTION = /payment due|minimum (payment|amount)|total amount due|amount due|interest rate|credit limit|available (credit|balance)|statement date/i;
 function isStandardBankCard(fullText){
   const t = fullText.toUpperCase();
   return t.includes('CREDIT LIMIT') && t.includes('TRANSACTION DETAILS') && t.includes('CLOSING BALANCE');
@@ -1078,6 +1080,7 @@ function parseStandardBankCard(fullText, bank){
   // the statement reconciles (a stray non-transaction line or a misread column shows up as a difference).
   let opening = null, closing = null;
   for(const line of body.split('\n')){
+    if(closing !== null) break; // the closing balance ends the transaction table; anything after it is summary or footer
     for(const m of line.matchAll(re)){
       const mon = MONTHS_EN[m[2].toLowerCase()];
       if(!mon) continue;
@@ -1087,6 +1090,8 @@ function parseStandardBankCard(fullText, bank){
         continue;
       }
       if(/closing balance/i.test(desc)){ closing = parseAmount(m[6] || m[5]); continue; }
+      if(/balance carried forward/i.test(desc)) continue; // page-break running total, not a transaction
+      if(CARD_NOT_TRANSACTION.test(desc)) continue;
       // foreign-currency purchases print the foreign amount first and the rand amount second
       const raw = parseAmount(m[6] || m[5]);
       if(raw === null) continue;

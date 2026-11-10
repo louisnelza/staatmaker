@@ -131,14 +131,31 @@ t('card: reconciles using the first brought-forward and the last closing balance
   const r = plain(parseCard(card).reconcile);
   assert(r.checked && r.ok, JSON.stringify(r)); close(r.opening, 5000); close(r.closing, 3003.15);
 });
-t('card: a stray non-transaction line shows up as a difference', () => {
-  const bad = card.replace('Page 1 of 2', '25 Apr 26 Minimum payment due 500.00');
+t('card: an unrecognised stray line shows up as a difference', () => {
+  const bad = card.replace('Page 1 of 2', '25 Mar 26 REWARDS ADJUSTMENT 500.00');
   const r = plain(parseCard(bad).reconcile);
   assert(r.checked && !r.ok); close(r.difference, -500);
 });
 t('card: a running-balance column read as the amount shows up as a difference', () => {
   const bad = card.replace('WOOLWORTHS CAPE TOWN 450.25', 'WOOLWORTHS CAPE TOWN 450.25 5,450.25');
   const r = plain(parseCard(bad).reconcile); assert(r.checked && !r.ok); close(r.difference, -5000);
+});
+t('card: summary wording inside the table is skipped', () => {
+  const withSummary = card.replace('Page 1 of 2', '25 Apr 26 Minimum payment due 500.00\n25 Apr 26 Total amount due 3,003.15\n10 Mar 26 Interest rate 21.00 22.50');
+  const rows = parseCard(withSummary);
+  assert.strictEqual(rows.length, 7, rows.map(r => r.desc).join(', ')); assert(rows.reconcile.ok);
+});
+t('card: balance carried forward is not a transaction', () => {
+  const rows = parseCard(card.replace('Page 1 of 2', '31 Mar 26 Balance carried forward 2,774.15'));
+  assert.strictEqual(rows.length, 7); assert(rows.reconcile.ok);
+});
+t('card: nothing after the closing balance is imported', () => {
+  const rows = parseCard(card.replace('Page 2 of 2', 'Page 2 of 2\n06 Apr 26 SOMETHING IN THE FOOTER 99.00'));
+  assert.strictEqual(rows.length, 7); assert(rows.reconcile.ok);
+});
+t('card: real merchants with similar words are kept', () => {
+  const rows = parseCard(card.replace('Page 1 of 2', '12 Mar 26 CREDIT CORNER CAFE 55.00\n13 Mar 26 DUE SOUTH COFFEE 40.00'));
+  assert.strictEqual(rows.length, 9); assert(!rows.reconcile.ok); close(rows.reconcile.difference, -95);
 });
 t('card: missing closing balance -> not checked', () => {
   assert.strictEqual(parseCard(card.replace(/.*Closing balance.*\n/, '')).reconcile.checked, false);
@@ -176,7 +193,7 @@ t('import: reconciling card statement gives no warning', async () => {
   const msg = await importFiles('card.pdf'); assert.strictEqual(R('transactions.length'), 7); assert(!msg.includes('reconcile'), msg);
 });
 t('import: card statement that does not reconcile is warned, with the difference', async () => {
-  R('transactions=[]; files=[]'); ctx.__pdf['bad.pdf'] = card.replace('Page 1 of 2', '25 Apr 26 Minimum payment due 500.00');
+  R('transactions=[]; files=[]'); ctx.__pdf['bad.pdf'] = card.replace('Page 1 of 2', '25 Mar 26 REWARDS ADJUSTMENT 500.00');
   const msg = await importFiles('bad.pdf');
   assert(msg.includes("doesn't reconcile") && msg.includes('bad.pdf') && /500[.,]00/.test(msg), msg);
 });
