@@ -1068,7 +1068,7 @@ function isStandardBankCard(fullText){
 }
 function parseStandardBankCard(fullText, bank){
   const out = [];
-  const re = /(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2})\s+(.+?)\s+(-?\d[\d,]*\.\d{2})(?=\s|$)/g;
+  const re = /(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2})\s+(.+?)\s+(-?\d[\d,]*\.\d{2})(?:\s+(-?\d[\d,]*\.\d{2}))?(?=\s|$)/g;
   const seen = fullText.indexOf('Transaction details');
   const body = seen >= 0 ? fullText.slice(seen) : fullText;
   for(const line of body.split('\n')){
@@ -1077,7 +1077,8 @@ function parseStandardBankCard(fullText, bank){
       if(!mon) continue;
       const desc = m[4].replace(/\s{2,}/g,' ').trim();
       if(/balance brought forward|closing balance|opening balance/i.test(desc)) continue;
-      const raw = parseAmount(m[5]);
+      // foreign-currency purchases print the foreign amount first and the rand amount second
+      const raw = parseAmount(m[6] || m[5]);
       if(raw === null) continue;
       const {category, taxLabel} = categorise(desc);
       out.push({id:idGen(), date:`20${m[3]}-${mon}-${m[1].padStart(2,'0')}`, desc, descEN:desc, bank, amount:-raw, category, taxLabel});
