@@ -151,6 +151,60 @@ t('rental: follows the selected year; mixing years under All is warned', () => {
   R('viewYear = "all"'); R('renderRental()'); assert(els['rs-warnings'].innerHTML.includes('mix 2 tax years'));
 });
 
+/* ---------- Rental income: received or accrued ---------- */
+const accScenario = (accrued) => {
+  setRS({cottageArea:'60', propertyArea:'240', monthsLet:'12', accrued});
+  ctx.__a = [{date:'2024-06-01', category:'Rental Income', amount:10000}, {date:'2025-06-01', category:'Rental Income', amount:12000},
+             {date:'2025-07-01', category:'Rental Income', amount:-500}, // refund to the tenant
+             {date:'2025-06-02', category:'Rental - Agent Commission', amount:-1000}];
+  R('transactions = __a.map((x,i)=>Object.assign({id:"a"+i, bank:"B", desc:"d"+i}, x))');
+};
+t('accrual: refund tagged Rental Income reduces rent received', () => {
+  accScenario({}); R('viewYear = 2026'); const r = R('computeRental()'); close(r.received, 11500); close(r.income, 11500);
+});
+t('accrual: income = received + owed at year end - owed at the start', () => {
+  accScenario({2025:'1000', 2026:'1500'}); R('viewYear = 2026');
+  const r = R('computeRental()'); close(r.received, 11500); close(r.accrual.opening, 1000); close(r.accrual.closing, 1500);
+  close(r.income, 12000); close(r.net, 11000);
+});
+t('accrual: across years the owed amount is taxed once (2025 + 2026 = all cash + final amount owed)', () => {
+  accScenario({2025:'1000', 2026:'1500'});
+  R('viewYear = 2025'); const y25 = R('computeRental()').income; R('viewYear = 2026'); const y26 = R('computeRental()').income;
+  close(y25, 11000, '2025'); close(y25 + y26, 10000 + 11500 + 1500, 'two years together');
+});
+t('accrual: All imported rows and the projection use cash received only', () => {
+  accScenario({2025:'1000', 2026:'1500'});
+  R('viewYear = "all"'); close(R('computeRental()').income, 21500);
+  R('viewYear = 2026'); close(R('computeRental(()=>true)').income, 21500, 'custom range');
+});
+t('accrual: blank or negative entries count as nothing', () => {
+  accScenario({2025:'', 2026:'-50'}); R('viewYear = 2026'); close(R('computeRental()').income, 11500);
+});
+t('accrual: receipt shows the adjustment lines; panel asks for a year under All', () => {
+  accScenario({2025:'1000', 2026:'1500'}); R('viewYear = 2026'); R('renderRental()');
+  const h = els['rental-receipt'].innerHTML;
+  assert(h.includes('Rent received (bank records)') && h.includes('owed at year end') && h.includes('taxed in 2025') && h.includes('received or accrued'), h);
+  assert(els['rs-accrual'].innerHTML.includes('28 Feb 2026') && els['rs-accrual'].innerHTML.includes('setAccrued(2025'));
+  R('viewYear = "all"'); R('renderRental()'); assert(els['rs-accrual'].innerHTML.includes('Choose a tax year'));
+  assert(!els['rental-receipt'].innerHTML.includes('owed at year end'));
+});
+t('accrual: no adjustment lines when nothing is owed', () => {
+  accScenario({}); R('viewYear = 2026'); R('renderRental()'); assert(!els['rental-receipt'].innerHTML.includes('Rent received (bank records)'));
+});
+t('accrual: warns when the opening amount owed is more than was received', () => {
+  accScenario({2025:'20000'}); R('viewYear = 2026'); R('renderRental()');
+  assert(els['rs-warnings'].innerHTML.includes('more than the rent received'));
+});
+t('accrual: setAccrued saves; clearing removes the entry; backups keep it', async () => {
+  accScenario({}); R('viewYear = 2026'); R('setAccrued(2026, "750")'); await new Promise(r => setTimeout(r, 0));
+  R('rentalSettings = RENTAL_SETTINGS_DEFAULT()'); await R('loadRentalSettings()'); assert.strictEqual(R('rentalSettings.accrued[2026]'), '750');
+  R('setAccrued(2026, "")'); assert.strictEqual(R('2026 in rentalSettings.accrued'), false);
+  ctx.__f = {text:async () => JSON.stringify({version:1, transactions:[], rentalSettings:{accrued:{2026:'300'}}})};
+  await R('restoreBackup(__f)'); assert.strictEqual(R('rentalSettings.accrued[2026]'), '300');
+  ctx.__f = {text:async () => JSON.stringify({version:1, transactions:[], rentalSettings:{cottageArea:'5'}})};
+  await R('restoreBackup(__f)'); assert.strictEqual(JSON.stringify(R('rentalSettings.accrued')), '{}');
+});
+
 /* ---------- Rendering ---------- */
 t('render: Rental tab draws and escapes the basis note', () => {
   scenario(); setRS({cottageArea:'60', propertyArea:'240', monthsLet:'12', basisNote:'<b>x</b>'}); R('renderRental()');

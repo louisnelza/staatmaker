@@ -285,6 +285,11 @@
           <div id="rs-warnings"></div>
         </div>
         <div class="panel" style="margin-bottom:16px;">
+          <h3>Rent owed but not yet paid</h3>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">Rent is taxed when it is received or when you become entitled to it, whichever comes first. Your bank records only show what was received, so enter rent you were owed at each year end (for example, a lease fee for the year that was only partly paid). Rent owed at the start of the year was already taxed last year, so it is taken off when it is paid.</p>
+          <div id="rs-accrual"></div>
+        </div>
+        <div class="panel" style="margin-bottom:16px;">
           <h3>Cost treatment</h3>
           <div id="rs-treatments"></div>
         </div>
@@ -552,12 +557,13 @@ async function saveRules(){ await storeSet('staatmaker:rules', JSON.stringify(ru
 async function saveFiles(){ await storeSet('staatmaker:files', JSON.stringify(files)); }
 
 let homeOffice = {officeArea:'', homeArea:'', equipment:'', costs:{}, checklist:{}};
-const RENTAL_SETTINGS_DEFAULT = () => ({cottageArea:'', propertyArea:'', monthsLet:'12', bondInterest:'', basisNote:'', treatment:{}});
+// accrued: rent owed to the owner at the end of each tax year, keyed by the year's end year (e.g. {2026:'1500'}).
+const RENTAL_SETTINGS_DEFAULT = () => ({cottageArea:'', propertyArea:'', monthsLet:'12', bondInterest:'', basisNote:'', treatment:{}, accrued:{}});
 let rentalSettings = RENTAL_SETTINGS_DEFAULT();
 async function loadRentalSettings(){
   try{
     const r = await storeGet('staatmaker:rental');
-    if(r){ const o = JSON.parse(r); rentalSettings = Object.assign(RENTAL_SETTINGS_DEFAULT(), o, {treatment: Object.assign({}, o.treatment||{})}); }
+    if(r){ const o = JSON.parse(r); rentalSettings = Object.assign(RENTAL_SETTINGS_DEFAULT(), o, {treatment: Object.assign({}, o.treatment||{}), accrued: Object.assign({}, o.accrued||{})}); }
   }catch(e){ /* no saved settings yet */ }
 }
 async function saveRentalSettings(){ await storeSet('staatmaker:rental', JSON.stringify(rentalSettings)); }
@@ -865,7 +871,7 @@ async function restoreBackup(file){
     files = data.files || [];
     homeOffice = Object.assign({officeArea:'', homeArea:'', equipment:'', costs:{}, checklist:{}}, data.homeOffice || {});
     projectionSettings = Object.assign({yearOffset:0, income:'', ageBand:'under65', medicalMembers:''}, data.projectionSettings || {});
-    rentalSettings = Object.assign(RENTAL_SETTINGS_DEFAULT(), data.rentalSettings || {}, {treatment: Object.assign({}, (data.rentalSettings||{}).treatment || {})});
+    rentalSettings = Object.assign(RENTAL_SETTINGS_DEFAULT(), data.rentalSettings || {}, {treatment: Object.assign({}, (data.rentalSettings||{}).treatment || {}), accrued: Object.assign({}, (data.rentalSettings||{}).accrued || {})});
     viewYear = (data.viewYear==='all' || typeof data.viewYear==='number') ? data.viewYear : null;
     await storeSet('staatmaker:viewyear', String(viewYear));
     await saveTransactions(); await saveRules(); await saveFiles(); await saveHomeOffice(); await saveRentalSettings(); await persistProjectionSettings();
@@ -1495,7 +1501,12 @@ function computeRental(inRange, opts){
   opts = opts || {};
   const inR = inRange || inViewYear;
   const sh = rentalShare();
-  const income = transactions.filter(t=>t.category==='Rental Income' && inR(t)).reduce((s,t)=>s+Math.abs(t.amount),0);
+  // Received: deposits tagged Rental Income (a refund paid back to a tenant, tagged the same way, reduces it).
+  const received = round2(transactions.filter(t=>t.category==='Rental Income' && inR(t)).reduce((s,t)=>s+t.amount,0));
+  // Received or accrued, whichever comes first: + owed at this year end, - owed at the start (already taxed last year).
+  // Only for a single tax year from the year selector; a custom date range (the projection) uses cash received.
+  const acc = rentalAccrual(inRange ? null : effectiveViewYear());
+  const income = round2(received + acc.closing - acc.opening);
   const rows = [];
   Object.keys(RENTAL_COST_MODEL).forEach(cat=>{
     // expenses are negative amounts; a refund (positive) in the same category nets off
@@ -1514,7 +1525,39 @@ function computeRental(inRange, opts){
   const totalDeduction = round2(Object.values(byLine).reduce((a,b)=>a+b,0));
   const needsAreas = !sh.ready && rows.some(r=>r.treatment==='apportion' && r.paid!==0);
   const excluded = rows.filter(r=>r.treatment==='none');
-  return {income, rows, byLine, totalDeduction, net: round2(income - totalDeduction), share: sh, needsAreas, excluded};
+  return {income, received, accrual: acc, rows, byLine, totalDeduction, net: round2(income - totalDeduction), share: sh, needsAreas, excluded};
+}
+
+function rentalAccrual(year){
+  if(typeof year !== 'number') return {year:null, opening:0, closing:0};
+  const a = rentalSettings.accrued || {};
+  const v = y => Math.max(0, parseFloat(a[y]) || 0);
+  return {year, opening: v(year-1), closing: v(year)};
+}
+
+function setAccrued(year, value){
+  rentalSettings.accrued = rentalSettings.accrued || {};
+  if(value === '' || value === null) delete rentalSettings.accrued[year]; else rentalSettings.accrued[year] = value;
+  saveRentalSettings();
+  renderRentalResult();
+}
+
+function renderRentalAccrual(){
+  const el = document.getElementById('rs-accrual');
+  const y = effectiveViewYear();
+  if(typeof y !== 'number'){
+    el.innerHTML = `<div style="font-size:12.5px;color:var(--ink-soft);">Choose a tax year at the top to enter rent owed at its start and end.</div>`;
+    return;
+  }
+  const a = rentalSettings.accrued || {};
+  const feb = yr => `${new Date(yr,2,0).getDate()} Feb ${yr}`;
+  const input = (yr, label) => `
+    <div class="map-row">
+      <label>${label}</label>
+      <input type="number" min="0" step="0.01" value="${escapeHtml(a[yr] ?? '')}" style="padding:6px;border:1px solid var(--line);border-radius:2px;" oninput="setAccrued(${yr}, this.value)">
+    </div>`;
+  el.innerHTML = input(y, `Owed to you at ${feb(y)}, the end of this tax year (R)`)
+    + input(y-1, `Owed to you at ${feb(y-1)}, the start of this tax year (R), already taxed in ${y-1}`);
 }
 
 function saveRentalInputs(){
@@ -1576,6 +1619,7 @@ function renderRentalSettings(){
   document.getElementById('rs-months').value = rentalSettings.monthsLet===undefined ? '12' : rentalSettings.monthsLet;
   document.getElementById('rs-bond').value = rentalSettings.bondInterest || '';
   document.getElementById('rs-note').value = rentalSettings.basisNote || '';
+  renderRentalAccrual();
   renderRentalTreatments();
 }
 
@@ -1598,6 +1642,7 @@ function renderRentalResult(){
     const rentalYears = new Set(transactions.filter(t=>t.category==='Rental Income' || RENTAL_COST_MODEL[t.category]).map(t=>taxYearOf(t.date)).filter(Boolean));
     if(rentalYears.size>1) warns.push(`These figures mix ${rentalYears.size} tax years. Choose a tax year at the top, because the cottage share and months let apply to one year.`);
   }
+  if(r.accrual.opening > 0 && r.received < r.accrual.opening) warns.push(`Rent owed at the start of the year (${fmtR(r.accrual.opening)}) is more than the rent received this year (${fmtR(r.received)}). If part of it is still unpaid, include that part in the amount owed at year end too, or the income comes out too low.`);
   if(r.needsAreas) warns.push(`Costs marked <b>Apportion</b> are counted as R 0.00 until you enter both areas above.`);
   const ho = parseFloat(homeOffice.homeArea) || 0;
   const rp = parseFloat(rentalSettings.propertyArea) || 0;
@@ -1606,7 +1651,7 @@ function renderRentalResult(){
   document.getElementById('rs-warnings').innerHTML = warns.map(w=>`<div class="disclaimer" style="margin:8px 0 0;">${w}</div>`).join('');
 
   const el = document.getElementById('rental-receipt');
-  if(r.income===0 && r.rows.length===0){
+  if(r.income===0 && r.received===0 && r.rows.length===0){
     el.innerHTML = `<div class="empty"><div class="icon">🏠</div>No rental transactions tagged yet. In the Transactions tab, set the category on rent deposits to <b>Rental Income</b>, and property costs to the matching <b>Rental – …</b> category.</div>`;
     return;
   }
@@ -1630,11 +1675,16 @@ function renderRentalResult(){
     <div class="receipt">
       <h4>Rental Income Summary</h4>
       <div class="sub">COTTAGE SHARE ${sh.ready?pct.toFixed(4)+'%':'NOT SET'}${rentalSettings.basisNote?' · '+escapeHtml(rentalSettings.basisNote).toUpperCase():''}</div>
-      <div class="line"><span>Rental income</span><span>${fmtR(r.income)}</span></div>
+      ${(r.accrual.opening || r.accrual.closing) ? `
+      <div class="line"><span>Rent received (bank records)</span><span>${fmtR(r.received)}</span></div>
+      ${r.accrual.closing ? `<div class="line"><span>Plus rent owed at year end, not yet received</span><span>${fmtR(r.accrual.closing)}</span></div>` : ''}
+      ${r.accrual.opening ? `<div class="line"><span>Less rent owed at the start, taxed in ${r.accrual.year-1}</span><span>-${fmtR(r.accrual.opening)}</span></div>` : ''}
+      <div class="line"><span>Rental income (received or accrued)</span><span>${fmtR(r.income)}</span></div>` : `
+      <div class="line"><span>Rental income</span><span>${fmtR(r.income)}</span></div>`}
       ${lineOrder.filter(k=>r.byLine[k]).map(k=>`<div class="line"><span>${ITR12_RENTAL_LINES[k]}</span><span>-${fmtR(r.byLine[k])}</span></div>`).join('')}
       <div class="line"><span>Total expenditure</span><span>-${fmtR(r.totalDeduction)}</span></div>
       <div class="line total"><span>${r.net>=0?'Net rental income':'Net rental loss'}</span><span>${fmtR(r.net)}</span></div>
-      <div class="note">The expenditure lines match the ITR12 rental expenditure fields. Income is whatever is tagged Rental Income in your bank records, which is cash received. If you are entitled to income that has not been paid yet, add it, because tax is on the amount received or accrued, whichever comes first. Keep proof of each expense (levy statements, insurance schedules, agent invoices, bond interest certificate), because SARS can ask for them. If this is a loss, ring-fencing rules can restrict offsetting it against other income. A tax practitioner can confirm how that applies to you.</div>
+      <div class="note">The expenditure lines match the ITR12 rental expenditure fields. Income is the rent tagged Rental Income in your bank records, adjusted for rent owed at the start and end of the year (entered above), because tax is on the amount received or accrued, whichever comes first. If rent you were owed will never be paid, a bad-debt deduction may apply instead; a tax practitioner can confirm. Keep proof of each expense (levy statements, insurance schedules, agent invoices, bond interest certificate), because SARS can ask for them. If this is a loss, ring-fencing rules can restrict offsetting it against other income. A tax practitioner can confirm how that applies to you.</div>
     </div>
   `;
 }
@@ -1780,6 +1830,11 @@ function exportXLSX(){
   if(rr.income!==0 || rr.rows.length){
     const rentalRows = rr.rows.map(x=>({Cost:x.label, Treatment:x.treatment==='apportion'?'Apportioned':x.treatment==='full'?'100% cottage':'Excluded', 'ITR12 line':ITR12_RENTAL_LINES[x.line], 'Paid (R)':x.paid, 'Share (%)':Math.round(x.factor*1000000)/10000, 'Deduction (R)':x.deductible}));
     rentalRows.push({});
+    if(rr.accrual.opening || rr.accrual.closing){
+      rentalRows.push({Cost:'Rent received (bank records)', 'Deduction (R)':rr.received});
+      rentalRows.push({Cost:'Plus rent owed at year end', 'Deduction (R)':rr.accrual.closing});
+      rentalRows.push({Cost:'Less rent owed at start (taxed last year)', 'Deduction (R)':-rr.accrual.opening});
+    }
     rentalRows.push({Cost:'Rental income', 'Deduction (R)':rr.income});
     rentalRows.push({Cost:'Total expenditure', 'Deduction (R)':rr.totalDeduction});
     rentalRows.push({Cost:rr.net>=0?'Net rental income':'Net rental loss', 'Deduction (R)':rr.net});

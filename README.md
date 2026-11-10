@@ -87,8 +87,9 @@ current figures at [sars.gov.za](https://www.sars.gov.za)** before relying on th
 - The tax projection is a straight-line annualisation (year-to-date ÷ days elapsed × days in year).
   It has no idea about bonuses, once-off donations, or seasonal spending, so it's a steer, not a
   forecast.
-- Rental income is whatever you tag as Rental Income in your bank records, which is cash received. Tax is on
-  income received or accrued, whichever comes first, so add any income you are owed but have not been paid.
+- Rental income starts from what you tag as Rental Income in your bank records (cash received). Tax is on
+  income received or accrued, whichever comes first, so the Rental tab takes the rent owed to you at the
+  start and end of each tax year and adjusts for it. Bad debts (rent that will never be paid) aren't modelled.
 - The additional medical expenses tax credit, disability-related rules, provisional tax, and capital
   gains are out of scope for now — see [Roadmap](#roadmap).
 
