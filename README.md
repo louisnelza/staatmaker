@@ -34,6 +34,12 @@ sorting so you can spend your time checking the result, not building it.
   silently claimed.
 - **Work-from-home deduction** — a SARS-requirement checklist plus a floor-area apportionment
   calculator for salaried employees who may qualify for a home office deduction.
+- **Tax-year view** — pick the SA tax year (1 March – end February) at the top and every total, the
+  rental summary and the spreadsheet export cover that year only, so rows from other years in an
+  overlapping statement don't end up on the wrong return. Defaults to the latest completed year with data.
+- **Own-account transfers** — tag moves between your own accounts (such as paying your credit card
+  from your cheque account) as *Transfers - Own Accounts* and they are left out of the income and
+  spending totals instead of being counted on both statements. Card repayments are tagged automatically.
 - **Tax year projection** — scales your year-to-date spending to a full-year estimate, checks it
   against the current retirement annuity and donation caps, and gives a rough estimated tax outcome
   using the current SARS bracket tables, rebates, and medical scheme fees tax credit.

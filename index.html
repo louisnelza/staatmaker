@@ -78,6 +78,10 @@
   .view.active{display:block;}
 
   /* SUMMARY CARDS */
+  .year-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin-bottom:12px;font-size:12.5px;}
+  .year-bar label{font-weight:600;}
+  .year-bar select{padding:5px 6px;border:1px solid var(--line);border-radius:2px;font-size:12.5px;max-width:100%;}
+  #view-year-note{color:var(--ink-soft);}
   .stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px;}
   .stat-card{background:var(--card);border:1px solid var(--line);padding:14px;border-radius:var(--radius);}
   .stat-card .label{font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--ink-soft);margin-bottom:6px;}
@@ -204,6 +208,11 @@
 
     <!-- MAIN -->
     <div>
+      <div class="year-bar">
+        <label for="view-year">Tax year</label>
+        <select id="view-year" onchange="setViewYear(this.value)"></select>
+        <span id="view-year-note"></span>
+      </div>
       <div class="stat-row" id="stat-row"></div>
 
       <div class="tabs">
@@ -365,7 +374,7 @@ let catChartInstance = null;
 const DEFAULT_CATEGORIES = [
   'Income','Groceries','Fuel & Transport','Eating Out','Rent / Bond','Utilities',
   'Insurance (Short-term)','Subscriptions & Entertainment','Shopping','Cash Withdrawal',
-  'Bank Fees','Interest & Bank Charges','Transfers','Investments','Medical Aid Contributions','Medical - Other','Retirement Annuity',
+  'Bank Fees','Interest & Bank Charges','Transfers','Transfers - Own Accounts','Investments','Medical Aid Contributions','Medical - Other','Retirement Annuity',
   'Income Protection','Donations',
   'Rental Income','Rental - Levies','Rental - Rates & Taxes','Rental - Insurance',
   'Rental - Repairs & Maintenance','Rental - Agent Commission','Rental - Bond Interest',
@@ -467,7 +476,7 @@ const DEFAULT_RULES = [
   ['INTERNATIONAL TXN FEE','Bank Fees',false],['E-COMM DECLINE','Bank Fees',false],['PMT/TRNSF FEE','Bank Fees',false],['INITIATION FEE','Bank Fees',false],
   ['FINANCE CHARGE','Interest & Bank Charges',false],
   ['CR PROTECTION','Insurance (Short-term)',false],['CREDIT PROTECTION','Insurance (Short-term)',false],
-  ['PAYMENT, THANK YOU','Transfers',false],['PAYMENT THANK YOU','Transfers',false],
+  ['PAYMENT, THANK YOU','Transfers - Own Accounts',false],['PAYMENT THANK YOU','Transfers - Own Accounts',false],
   ['X CORP. PAID','Subscriptions & Entertainment',false],
   ['RTMC','Fuel & Transport',false],
   ['TRANSFER','Transfers',false],['EFT ','Transfers',false],
@@ -535,6 +544,7 @@ async function loadData(){
   }catch(e){ files = []; }
   await loadHomeOffice();
   await loadRentalSettings();
+  await loadViewYear();
   await loadProjectionSettings();
 }
 async function saveTransactions(){ await storeSet('staatmaker:transactions', JSON.stringify(transactions)); }
@@ -625,10 +635,62 @@ function taxYearBounds(offset){
   return {start, end: endActual, endYear: startYear+1, label: `1 Mar ${startYear} – 28/29 Feb ${startYear+1}`};
 }
 
+// Local calendar date as YYYY-MM-DD. Transaction dates are plain YYYY-MM-DD strings, so ranges are compared
+// as strings: new Date('2026-02-28') is UTC midnight, which in SA (UTC+2) falls before a local 28 Feb and
+// used to drop the last day of the tax year.
+function ymd(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function dateInRange(dateStr, start, end){
-  if(!dateStr) return false;
-  const d = new Date(dateStr);
-  return d>=start && d<=end;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(dateStr||'')) return false;
+  return dateStr >= ymd(start) && dateStr <= ymd(end);
+}
+
+/* ---------------- TAX YEAR FILTER ---------------- */
+// SA tax years run 1 March to end February and are named by the year they end in (2026 = Mar 2025 - Feb 2026).
+function taxYearOf(dateStr){
+  const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(dateStr||'');
+  if(!m) return null;
+  return +m[2] >= 3 ? +m[1] + 1 : +m[1];
+}
+function taxYearLabel(y){ return `${y} tax year (1 Mar ${y-1} – ${new Date(y,2,0).getDate()} Feb ${y})`; }
+let viewYear = null; // a tax year (number), 'all', or null = not chosen yet
+function yearsWithData(){ return [...new Set(transactions.map(t=>taxYearOf(t.date)).filter(Boolean))].sort((a,b)=>b-a); }
+// Until the user picks one: the latest completed tax year that has data (the one being filed), else the latest with data.
+function effectiveViewYear(){
+  if(viewYear==='all' || typeof viewYear==='number') return viewYear;
+  const yrs = yearsWithData();
+  if(!yrs.length) return 'all';
+  const current = taxYearOf(ymd(new Date()));
+  const done = yrs.filter(y=>y<current);
+  return done.length ? done[0] : yrs[0];
+}
+function inViewYear(t){ const y = effectiveViewYear(); return y==='all' || taxYearOf(t.date)===y; }
+function viewTxns(){ return transactions.filter(inViewYear); }
+// Moves between the user's own accounts (e.g. paying the credit card from the cheque account) appear on both
+// statements; they are neither income nor spending, so they are left out of the in/out totals.
+const OWN_TRANSFER = 'Transfers - Own Accounts';
+function countsInTotals(t){ return t.category !== OWN_TRANSFER; }
+async function loadViewYear(){
+  try{ const v = await storeGet('staatmaker:viewyear'); viewYear = v==='all' ? 'all' : (parseInt(v) || null); }catch(e){ viewYear = null; }
+}
+async function setViewYear(v){
+  viewYear = v==='all' ? 'all' : (parseInt(v) || null);
+  await storeSet('staatmaker:viewyear', String(viewYear));
+  renderAll();
+}
+function renderYearBar(){
+  const sel = document.getElementById('view-year');
+  const cur = effectiveViewYear();
+  const yrs = yearsWithData();
+  if(typeof cur==='number' && !yrs.includes(cur)) yrs.push(cur);
+  yrs.sort((a,b)=>b-a);
+  sel.innerHTML = yrs.map(y=>`<option value="${y}" ${y===cur?'selected':''}>${taxYearLabel(y)}</option>`).join('')
+    + `<option value="all" ${cur==='all'?'selected':''}>All imported rows</option>`;
+  const outside = transactions.length - viewTxns().length;
+  const noDate = transactions.filter(t=>!taxYearOf(t.date)).length;
+  const notes = [];
+  if(cur!=='all' && outside>0) notes.push(`${outside} imported row(s) fall outside this tax year and are not counted.`);
+  if(noDate>0) notes.push(`${noDate} row(s) have no valid date and only show under All imported rows.`);
+  document.getElementById('view-year-note').textContent = notes.join(' ');
 }
 
 const PROJECTION_CATEGORIES = [
@@ -782,7 +844,7 @@ async function clearAllData(){
 }
 
 function downloadBackup(){
-  const backup = {version:1, exportedAt:new Date().toISOString(), transactions, rules, files, homeOffice, rentalSettings, projectionSettings};
+  const backup = {version:1, exportedAt:new Date().toISOString(), transactions, rules, files, homeOffice, rentalSettings, projectionSettings, viewYear};
   const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -804,6 +866,8 @@ async function restoreBackup(file){
     homeOffice = Object.assign({officeArea:'', homeArea:'', equipment:'', costs:{}, checklist:{}}, data.homeOffice || {});
     projectionSettings = Object.assign({yearOffset:0, income:'', ageBand:'under65', medicalMembers:''}, data.projectionSettings || {});
     rentalSettings = Object.assign(RENTAL_SETTINGS_DEFAULT(), data.rentalSettings || {}, {treatment: Object.assign({}, (data.rentalSettings||{}).treatment || {})});
+    viewYear = (data.viewYear==='all' || typeof data.viewYear==='number') ? data.viewYear : null;
+    await storeSet('staatmaker:viewyear', String(viewYear));
     await saveTransactions(); await saveRules(); await saveFiles(); await saveHomeOffice(); await saveRentalSettings(); await persistProjectionSettings();
     renderAll();
     alert('Backup restored.');
@@ -1273,14 +1337,17 @@ function allCategories(){
 }
 
 function renderStats(){
-  const income = transactions.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
-  const spend = transactions.filter(t=>t.amount<0).reduce((s,t)=>s+Math.abs(t.amount),0);
-  const taxTotal = transactions.filter(t=>t.taxLabel).reduce((s,t)=>s+Math.abs(t.amount),0);
+  const rows = viewTxns();
+  const counted = rows.filter(countsInTotals);
+  const income = counted.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
+  const spend = counted.filter(t=>t.amount<0).reduce((s,t)=>s+Math.abs(t.amount),0);
+  const taxTotal = rows.filter(t=>t.taxLabel).reduce((s,t)=>s+Math.abs(t.amount),0);
+  const ownNote = counted.length < rows.length ? ' title="Excludes Transfers - Own Accounts"' : '';
   const el = document.getElementById('stat-row');
   el.innerHTML = `
-    <div class="stat-card positive"><div class="label">Total in</div><div class="value">${fmtR(income)}</div></div>
-    <div class="stat-card negative"><div class="label">Total spent</div><div class="value">${fmtR(spend)}</div></div>
-    <div class="stat-card"><div class="label">Transactions</div><div class="value">${transactions.length}</div></div>
+    <div class="stat-card positive"${ownNote}><div class="label">Total in</div><div class="value">${fmtR(income)}</div></div>
+    <div class="stat-card negative"${ownNote}><div class="label">Total spent</div><div class="value">${fmtR(spend)}</div></div>
+    <div class="stat-card"><div class="label">Transactions</div><div class="value">${rows.length}</div></div>
     <div class="stat-card"><div class="label">Flagged tax-relevant</div><div class="value" style="color:var(--gold-dark);">${fmtR(taxTotal)}</div></div>
   `;
 }
@@ -1288,7 +1355,7 @@ function renderStats(){
 function renderTransactions(){
   const q = (document.getElementById('search-box').value||'').toLowerCase();
   const body = document.getElementById('txn-body');
-  const rows = transactions
+  const rows = viewTxns()
     .filter(t=>!q || t.desc.toLowerCase().includes(q))
     .sort((a,b)=> (b.date||'').localeCompare(a.date||''));
   if(rows.length===0){
@@ -1352,7 +1419,7 @@ function updateCategory(id, cat){
 
 function renderCategories(){
   const map = {};
-  transactions.filter(t=>t.amount<0).forEach(t=>{
+  viewTxns().filter(t=>t.amount<0 && countsInTotals(t)).forEach(t=>{
     map[t.category] = map[t.category] || {total:0,count:0};
     map[t.category].total += Math.abs(t.amount);
     map[t.category].count += 1;
@@ -1383,11 +1450,12 @@ function renderCategories(){
 
 function renderTax(){
   const map = {};
-  transactions.filter(t=>t.taxLabel).forEach(t=>{
+  viewTxns().filter(t=>t.taxLabel).forEach(t=>{
     map[t.taxLabel] = (map[t.taxLabel]||0) + Math.abs(t.amount);
   });
   const entries = Object.entries(map);
   const total = entries.reduce((s,[,v])=>s+v,0);
+  const vy = effectiveViewYear();
   const el = document.getElementById('tax-receipt');
   if(entries.length===0){
     el.innerHTML = `<div class="empty"><div class="icon">🧾</div>No tax-relevant items detected yet. Import statements, or add categorisation rules on the left (e.g. your retirement annuity or medical aid provider's name) so Staatmaker can flag them.</div>`;
@@ -1396,7 +1464,7 @@ function renderTax(){
   el.innerHTML = `
     <div class="receipt">
       <h4>Tax-Relevant Summary</h4>
-      <div class="sub">FROM IMPORTED BANK RECORDS</div>
+      <div class="sub">${vy==='all' ? 'ALL IMPORTED ROWS · CHOOSE A TAX YEAR FOR A RETURN' : taxYearLabel(vy).toUpperCase()}</div>
       ${entries.map(([label,v])=>`<div class="line"><span>${label}</span><span>${fmtR(v)}</span></div>`).join('')}
       <div class="line total"><span>Total flagged</span><span>${fmtR(total)}</span></div>
       <div class="note">These figures come from matching transaction descriptions and are estimates only. SARS requires the actual certificates for each deduction — your medical aid tax certificate, RA contribution certificate(s), and Section 18A donation receipts — so reconcile these totals against those documents before submitting your return.</div>
@@ -1425,7 +1493,7 @@ const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
 // inRange: optional (txn)=>bool to limit the dates counted. opts.manual=false leaves out the typed-in bond interest.
 function computeRental(inRange, opts){
   opts = opts || {};
-  const inR = inRange || (()=>true);
+  const inR = inRange || inViewYear;
   const sh = rentalShare();
   const income = transactions.filter(t=>t.category==='Rental Income' && inR(t)).reduce((s,t)=>s+Math.abs(t.amount),0);
   const rows = [];
@@ -1526,6 +1594,10 @@ function renderRentalResult(){
 
   // warnings
   const warns = [];
+  if(effectiveViewYear()==='all'){
+    const rentalYears = new Set(transactions.filter(t=>t.category==='Rental Income' || RENTAL_COST_MODEL[t.category]).map(t=>taxYearOf(t.date)).filter(Boolean));
+    if(rentalYears.size>1) warns.push(`These figures mix ${rentalYears.size} tax years. Choose a tax year at the top, because the cottage share and months let apply to one year.`);
+  }
   if(r.needsAreas) warns.push(`Costs marked <b>Apportion</b> are counted as R 0.00 until you enter both areas above.`);
   const ho = parseFloat(homeOffice.homeArea) || 0;
   const rp = parseFloat(rentalSettings.propertyArea) || 0;
@@ -1570,7 +1642,7 @@ function renderRentalResult(){
 function homeOfficeCostTotals(){
   const totals = {};
   Object.entries(HOME_OFFICE_SOURCE_CATEGORIES).forEach(([cat,key])=>{
-    const sum = transactions.filter(t=>t.category===cat).reduce((s,t)=>s+Math.abs(t.amount),0);
+    const sum = viewTxns().filter(t=>t.category===cat).reduce((s,t)=>s+Math.abs(t.amount),0);
     if(sum>0) totals[key] = (totals[key]||0) + sum;
   });
   return totals;
@@ -1661,6 +1733,7 @@ function saveHomeOfficeInputs(){
 }
 
 function renderAll(){
+  renderYearBar();
   renderStats();
   renderTransactions();
   renderCategories();
@@ -1670,16 +1743,19 @@ function renderAll(){
   renderProjection();
   renderRulesList();
   renderFileList();
-  const now = new Date();
-  document.getElementById('tax-year-label').textContent = `SA tax year ${now.getMonth()>=2? now.getFullYear():now.getFullYear()-1}–${now.getMonth()>=2? now.getFullYear()+1:now.getFullYear()} · ${transactions.length} records`;
+  const vy = effectiveViewYear();
+  document.getElementById('tax-year-label').textContent = `${vy==='all' ? 'All tax years' : taxYearLabel(vy)} · ${viewTxns().length} of ${transactions.length} records`;
 }
 
 /* ---------------- EXPORT ---------------- */
 function exportXLSX(){
   if(transactions.length===0){ alert('Nothing to export yet — import some statements first.'); return; }
+  const rowsInYear = viewTxns();
+  if(rowsInYear.length===0){ alert('No rows in the selected tax year. Choose another year at the top.'); return; }
+  const vy = effectiveViewYear();
   const wb = XLSX.utils.book_new();
 
-  const txnSheet = transactions
+  const txnSheet = rowsInYear
     .slice()
     .sort((a,b)=>(a.date||'').localeCompare(b.date||''))
     .map(t=>({Date:t.date, Description:t.desc, 'Description (English)':(t.descEN&&t.descEN!==t.desc)?t.descEN:'', Bank:t.bank, Category:t.category, 'Tax Relevant':t.taxLabel||'', 'Amount (R)':t.amount}));
@@ -1687,14 +1763,14 @@ function exportXLSX(){
   XLSX.utils.book_append_sheet(wb, ws1, 'Transactions');
 
   const catMap = {};
-  transactions.filter(t=>t.amount<0).forEach(t=>{
+  rowsInYear.filter(t=>t.amount<0 && countsInTotals(t)).forEach(t=>{
     catMap[t.category] = (catMap[t.category]||0) + Math.abs(t.amount);
   });
   const ws2 = XLSX.utils.json_to_sheet(Object.entries(catMap).map(([Category,Total])=>({Category,'Total (R)':Total})));
   XLSX.utils.book_append_sheet(wb, ws2, 'Category Summary');
 
   const taxMap = {};
-  transactions.filter(t=>t.taxLabel).forEach(t=>{
+  rowsInYear.filter(t=>t.taxLabel).forEach(t=>{
     taxMap[t.taxLabel] = (taxMap[t.taxLabel]||0) + Math.abs(t.amount);
   });
   const ws3 = XLSX.utils.json_to_sheet(Object.entries(taxMap).map(([Item,Total])=>({Item,'Total (R)':Total})));
@@ -1713,7 +1789,7 @@ function exportXLSX(){
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rentalRows), 'Rental');
   }
 
-  XLSX.writeFile(wb, `staatmaker-tax-summary-${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.writeFile(wb, `staatmaker-${vy==='all' ? 'all-years' : vy+'-tax-year'}-${ymd(new Date())}.xlsx`);
 }
 
 /* ---------------- EVENTS ---------------- */
