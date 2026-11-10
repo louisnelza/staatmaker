@@ -1074,12 +1074,19 @@ function parseStandardBankCard(fullText, bank){
   const re = /(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2})\s+(.+?)\s+(-?\d[\d,]*\.\d{2})(?:\s+(-?\d[\d,]*\.\d{2}))?(?=\s|$)/g;
   const seen = fullText.indexOf('Transaction details');
   const body = seen >= 0 ? fullText.slice(seen) : fullText;
+  // The first balance brought forward and the last closing balance are kept so the import can check
+  // the statement reconciles (a stray non-transaction line or a misread column shows up as a difference).
+  let opening = null, closing = null;
   for(const line of body.split('\n')){
     for(const m of line.matchAll(re)){
       const mon = MONTHS_EN[m[2].toLowerCase()];
       if(!mon) continue;
       const desc = m[4].replace(/\s{2,}/g,' ').trim();
-      if(/balance brought forward|closing balance|opening balance/i.test(desc)) continue;
+      if(/balance brought forward|opening balance/i.test(desc)){
+        if(opening === null) opening = parseAmount(m[6] || m[5]);
+        continue;
+      }
+      if(/closing balance/i.test(desc)){ closing = parseAmount(m[6] || m[5]); continue; }
       // foreign-currency purchases print the foreign amount first and the rand amount second
       const raw = parseAmount(m[6] || m[5]);
       if(raw === null) continue;
@@ -1087,7 +1094,17 @@ function parseStandardBankCard(fullText, bank){
       out.push({id:idGen(), date:`20${m[3]}-${mon}-${m[1].padStart(2,'0')}`, desc, descEN:desc, bank, amount:-raw, category, taxLabel});
     }
   }
+  out.reconcile = reconcileCard(out, opening, closing);
   return out;
+}
+
+// Card balances are amounts owed, so closing = brought forward + spend - payments = opening - sum(amount).
+function reconcileCard(rows, opening, closing){
+  if(opening === null || closing === null) return {checked:false};
+  const sum = rows.reduce((s,t)=>s+t.amount, 0);
+  const expected = round2(opening - sum);
+  const difference = round2(closing - expected);
+  return {checked:true, ok: Math.abs(difference) < 0.005, opening, closing, expected, difference};
 }
 
 async function handlePDFFile(file, bank){
@@ -1147,6 +1164,7 @@ async function processFiles(fileList, bank){
   const newTxns = [];
   let skipped = 0, dupes = 0;
   const unsupported = [];
+  const unreconciled = [];
   // Multiset of rows already held: a repeat inside one file is a genuine repeat purchase, but a row
   // already imported from an earlier (overlapping) statement is a duplicate and is dropped.
   const held = {};
@@ -1161,6 +1179,10 @@ async function processFiles(fileList, bank){
       if(parsed === null){ skipped++; continue; }
     }else{
       unsupported.push(file.name); continue;
+    }
+    if(parsed.reconcile){
+      if(!parsed.reconcile.checked) unreconciled.push(`${file.name}: balance brought forward or closing balance not found, so the rows could not be checked`);
+      else if(!parsed.reconcile.ok) unreconciled.push(`${file.name}: imported rows leave ${fmtR(parsed.reconcile.difference)} unaccounted for (closing balance ${fmtR(parsed.reconcile.closing)}, rows give ${fmtR(parsed.reconcile.expected)})`);
     }
     const budget = Object.assign({}, held);
     const fresh = [];
@@ -1181,9 +1203,10 @@ async function processFiles(fileList, bank){
   const notes = [];
   if(skipped>0) notes.push(`${skipped} file(s) were skipped — no password was entered (or it kept failing). Drop the file in again to retry.`);
   if(unsupported.length) notes.push(`Not imported (only .csv and .pdf are supported): ${unsupported.join(', ')}. Save Excel (.xls/.xlsx) statements as CSV first.`);
+  if(unreconciled.length) notes.push(`Card statement doesn't reconcile. Check the imported rows against the statement:\n${unreconciled.join('\n')}`);
   if(dupes>0) notes.push(`${dupes} row(s) were already imported from an earlier statement and were skipped.`);
   if(future>0) notes.push(`${future} imported row(s) are dated in the future — check the year in the source file.`);
-  if(newTxns.length===0 && skipped===0 && dupes===0 && unsupported.length===0 && fileList.length>0){
+  if(newTxns.length===0 && skipped===0 && dupes===0 && unsupported.length===0 && unreconciled.length===0 && fileList.length>0){
     notes.push('No transactions could be detected in that file. PDF layouts vary a lot between banks — you can still add rows manually, or try exporting a CSV from your bank\'s app/site instead, which parses more reliably.');
   }
   if(notes.length) alert(notes.join('\n\n'));
