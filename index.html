@@ -248,7 +248,36 @@
       <div class="view" id="view-rental">
         <div class="panel" style="margin-bottom:16px;">
           <h3>How this works</h3>
-          <p style="font-size:12.5px;color:var(--ink-soft);margin:0;">Tag rental deposits as <b>Rental Income</b> and property-related costs using the <b>Rental – …</b> categories (Levies, Rates &amp; Taxes, Insurance, Repairs &amp; Maintenance, Agent Commission, Bond Interest) in the Transactions tab. This section totals them into the net rental result you declare on your return.</p>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0;">Tag rental deposits as <b>Rental Income</b> and property costs using the <b>Rental – …</b> categories in the Transactions tab. When only part of a property is let, costs that serve the whole property (rates, insurance, electricity, water, bond interest and so on) are cut down to the cottage share, and costs that belong to the cottage alone are claimed in full. Every category has a default treatment below, and you can change any of them.</p>
+        </div>
+        <div class="panel" style="margin-bottom:16px;">
+          <h3>Cottage share</h3>
+          <div class="map-row">
+            <label>Cottage (let part) area, m²</label>
+            <input type="number" id="rs-cottage" min="0" step="0.001" style="padding:6px;border:1px solid var(--line);border-radius:2px;" oninput="saveRentalInputs()">
+          </div>
+          <div class="map-row">
+            <label>Total property area, m² (same basis as the cottage)</label>
+            <input type="number" id="rs-property" min="0" step="0.001" style="padding:6px;border:1px solid var(--line);border-radius:2px;" oninput="saveRentalInputs()">
+          </div>
+          <div class="map-row">
+            <label>Months held out for letting this tax year</label>
+            <input type="number" id="rs-months" min="0" max="12" step="1" style="padding:6px;border:1px solid var(--line);border-radius:2px;" oninput="saveRentalInputs()">
+          </div>
+          <div class="map-row">
+            <label>Bond interest for the year, from the lender certificate (R, whole property)</label>
+            <input type="number" id="rs-bond" min="0" step="0.01" style="padding:6px;border:1px solid var(--line);border-radius:2px;" oninput="saveRentalInputs()">
+          </div>
+          <div class="map-row">
+            <label>Basis note (for example, site coverage per approved plans)</label>
+            <input type="text" id="rs-note" style="padding:6px;border:1px solid var(--line);border-radius:2px;" oninput="saveRentalInputs()">
+          </div>
+          <div id="rs-ratio" style="font-size:12.5px;color:var(--ink-soft);margin-top:4px;"></div>
+          <div id="rs-warnings"></div>
+        </div>
+        <div class="panel" style="margin-bottom:16px;">
+          <h3>Cost treatment</h3>
+          <div id="rs-treatments"></div>
         </div>
         <div id="rental-receipt"></div>
       </div>
@@ -340,6 +369,8 @@ const DEFAULT_CATEGORIES = [
   'Income Protection','Donations',
   'Rental Income','Rental - Levies','Rental - Rates & Taxes','Rental - Insurance',
   'Rental - Repairs & Maintenance','Rental - Agent Commission','Rental - Bond Interest',
+  'Rental - Electricity','Rental - Water & Sanitation','Rental - Internet','Rental - Garden & Security',
+  'Rental - Furnishings & Linen','Rental - Other (cottage only)',
   'Home - Rates & Taxes','Home - Insurance','Home - Repairs & Maintenance',
   'Uncategorised'
 ];
@@ -352,10 +383,37 @@ const TAX_LABELS = {
   'Donations':'Donations (Section 18A)'
 };
 
-const RENTAL_EXPENSE_CATEGORIES = [
-  'Rental - Levies','Rental - Rates & Taxes','Rental - Insurance',
-  'Rental - Repairs & Maintenance','Rental - Agent Commission','Rental - Bond Interest'
-];
+// Which ITR12 rental expenditure line each cost lands on.
+const ITR12_RENTAL_LINES = {
+  rates_elec:'Electricity / rates & taxes', insurance:'Insurance', interest:'Interest / finance charges',
+  levies:'Levies paid', repairs:'Repairs / maintenance', agent:'Agency fees', other:'Other'
+};
+
+// How each cost category is treated when working out the rental deduction (editable per user):
+//   apportion = the cost serves the whole property      -> deduct the cottage share only
+//   full      = the cost belongs to the cottage alone    -> deduct 100%
+//   none      = not a rental deduction (private, or handled elsewhere)
+// These are the defaults for every known category; the user can override any of them.
+const RENTAL_COST_MODEL = {
+  'Rental - Levies':               {treatment:'apportion', line:'levies',    note:'Neighbourhood or body-corporate levies on the whole property.'},
+  'Rental - Rates & Taxes':        {treatment:'apportion', line:'rates_elec',note:'Only rates actually levied and not in dispute.'},
+  'Rental - Insurance':            {treatment:'apportion', line:'insurance', note:'Buildings cover only. Leave out contents, vehicle and credit-life cover.'},
+  'Rental - Repairs & Maintenance':{treatment:'full',      line:'repairs',   note:'Repairs made to the cottage itself.'},
+  'Rental - Agent Commission':     {treatment:'full',      line:'agent',     note:'A cost of letting the cottage.'},
+  'Rental - Bond Interest':        {treatment:'apportion', line:'interest',  note:'Interest portion only, not the whole instalment.'},
+  'Rental - Electricity':          {treatment:'apportion', line:'rates_elec',note:'Billed amounts for the whole property (one meter).'},
+  'Rental - Water & Sanitation':   {treatment:'apportion', line:'other',     note:'Whole-property water account.'},
+  'Rental - Internet':             {treatment:'apportion', line:'other',     note:'Fibre or ADSL shared with the house.'},
+  'Rental - Garden & Security':    {treatment:'apportion', line:'other',     note:'Garden service and security that cover the whole property.'},
+  'Rental - Furnishings & Linen':  {treatment:'full',      line:'other',     note:'Items used only in the cottage. Anything over R7,000 needs wear and tear, not a straight deduction.'},
+  'Rental - Other (cottage only)': {treatment:'full',      line:'other',     note:'Any other cost that belongs to the cottage alone.'},
+  'Home - Rates & Taxes':          {treatment:'apportion', line:'rates_elec',note:'Whole-property rates. The home office uses its own share of the same bill.'},
+  'Home - Insurance':              {treatment:'apportion', line:'insurance', note:'Whole-property insurance. Buildings cover only.'},
+  'Home - Repairs & Maintenance':  {treatment:'none',      line:'repairs',   note:'Repairs to the main house are not a rental cost. Re-tag as Rental - Repairs if the work was on the cottage.'},
+  'Utilities':                     {treatment:'none',      line:'rates_elec',note:'Also holds phone and airtime. Re-tag property bills as Rental - Electricity, Water or Internet, or switch to Apportion if only property bills sit here.'},
+  'Rent / Bond':                   {treatment:'none',      line:'interest',  note:'A bond instalment includes capital. Enter the interest from your lender certificate above instead.'}
+};
+const RENTAL_EXPENSE_CATEGORIES = Object.keys(RENTAL_COST_MODEL);
 
 // category -> home office cost field key, used to prefill the apportionment inputs
 const HOME_OFFICE_SOURCE_CATEGORIES = {
@@ -469,6 +527,7 @@ async function loadData(){
     files = f ? JSON.parse(f) : [];
   }catch(e){ files = []; }
   await loadHomeOffice();
+  await loadRentalSettings();
   await loadProjectionSettings();
 }
 async function saveTransactions(){ await storeSet('staatmaker:transactions', JSON.stringify(transactions)); }
@@ -476,6 +535,15 @@ async function saveRules(){ await storeSet('staatmaker:rules', JSON.stringify(ru
 async function saveFiles(){ await storeSet('staatmaker:files', JSON.stringify(files)); }
 
 let homeOffice = {officeArea:'', homeArea:'', equipment:'', costs:{}, checklist:{}};
+const RENTAL_SETTINGS_DEFAULT = () => ({cottageArea:'', propertyArea:'', monthsLet:'12', bondInterest:'', basisNote:'', treatment:{}});
+let rentalSettings = RENTAL_SETTINGS_DEFAULT();
+async function loadRentalSettings(){
+  try{
+    const r = await storeGet('staatmaker:rental');
+    if(r){ const o = JSON.parse(r); rentalSettings = Object.assign(RENTAL_SETTINGS_DEFAULT(), o, {treatment: Object.assign({}, o.treatment||{})}); }
+  }catch(e){ /* no saved settings yet */ }
+}
+async function saveRentalSettings(){ await storeSet('staatmaker:rental', JSON.stringify(rentalSettings)); }
 let projectionSettings = {yearOffset:0, income:'', ageBand:'under65', medicalMembers:''};
 async function loadProjectionSettings(){
   try{
@@ -523,7 +591,9 @@ function computeBracketTax(income, brackets){
   if(income<=0) return 0;
   let b = brackets[0];
   for(const br of brackets){ if(income>=br.min) b = br; else break; }
-  return b.base + b.rate*(income-b.min);
+  // SARS bands are "the amount above R237 100" etc., i.e. min-1 for every band after the first
+  const floor = b.min > 0 ? b.min - 1 : 0;
+  return b.base + b.rate*(income-floor);
 }
 
 async function saveProjectionSettings(){
@@ -666,12 +736,13 @@ function renderProjection(){
       </div>`;
   }
 
-  // Rental projection
-  const rentalIncomeYTD = transactions.filter(t=>t.category==='Rental Income' && dateInRange(t.date, start, effectiveToday)).reduce((s,t)=>s+Math.abs(t.amount),0);
-  let rentalExpenseYTD = 0;
-  RENTAL_EXPENSE_CATEGORIES.forEach(cat=>{
-    rentalExpenseYTD += transactions.filter(t=>t.category===cat && dateInRange(t.date, start, effectiveToday)).reduce((s,t)=>s+Math.abs(t.amount),0);
-  });
+  // Rental projection (cottage share applied). The lender-certificate bond interest is an annual
+  // figure, so only the elapsed part of the year counts towards YTD; scaling then gives the full year.
+  const rentalYTD = computeRental(t=>dateInRange(t.date, start, effectiveToday), {manual:false});
+  const bondAnnual = round2((parseFloat(rentalSettings.bondInterest) || 0) * rentalShare().share);
+  const bondYTD = bondAnnual * elapsedDays / totalDays;
+  const rentalIncomeYTD = rentalYTD.income;
+  const rentalExpenseYTD = rentalYTD.totalDeduction + bondYTD;
   const rentalEl = document.getElementById('proj-rental');
   if(rentalIncomeYTD===0 && rentalExpenseYTD===0){
     rentalEl.innerHTML = '';
@@ -704,7 +775,7 @@ async function clearAllData(){
 }
 
 function downloadBackup(){
-  const backup = {version:1, exportedAt:new Date().toISOString(), transactions, rules, files, homeOffice, projectionSettings};
+  const backup = {version:1, exportedAt:new Date().toISOString(), transactions, rules, files, homeOffice, rentalSettings, projectionSettings};
   const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -725,7 +796,8 @@ async function restoreBackup(file){
     files = data.files || [];
     homeOffice = Object.assign({officeArea:'', homeArea:'', equipment:'', costs:{}, checklist:{}}, data.homeOffice || {});
     projectionSettings = Object.assign({yearOffset:0, income:'', ageBand:'under65', medicalMembers:''}, data.projectionSettings || {});
-    await saveTransactions(); await saveRules(); await saveFiles(); await saveHomeOffice(); await persistProjectionSettings();
+    rentalSettings = Object.assign(RENTAL_SETTINGS_DEFAULT(), data.rentalSettings || {}, {treatment: Object.assign({}, (data.rentalSettings||{}).treatment || {})});
+    await saveTransactions(); await saveRules(); await saveFiles(); await saveHomeOffice(); await saveRentalSettings(); await persistProjectionSettings();
     renderAll();
     alert('Backup restored.');
   }catch(e){
@@ -932,7 +1004,7 @@ function translateDesc(desc){
 
 const SB_STOP_MARKERS = [
   'VERIFIEER ASSEBLIEF','BESOEK ASSEBLIEF','DIE STANDARD BANK VAN','BTW-REG','ONS ONDERSKRYF',
-  'KLIENTESORGSENTRUM','EPOS:','BANKSTAAT','ACHIEVA TJEKREKENING','BLADSY','STAAT VAN','MAANDELIKS',
+  'KLIENTESORGSENTRUM','EPOS:','BANKSTAAT','ACHIEVA TJEKREKENING','BLADSY','STAAT VAN','MAANDELIKS E-POS',
   'REKENINGNOMMER','MAANDEINDESALDO','BESONDERHEDE','OPSOMMING','PERKSTRUKTUUR',
   'OORTREKKINGSBESONDERHEDE','HIERDIE FOOIE SLUIT BTW','SALDO OORGEBRING','STAATNOMMER',
   'STAATFREKWENSIE','P.BUS','MARSHALLTOWN'
@@ -962,6 +1034,10 @@ function parseStandardBankAfrikaans(fullText, bank){
   const lines = fullText.split('\n').map(l=>l.trim()).filter(Boolean);
   const out = [];
   let current = null;
+  // Every row prints the running balance, so each row's amount must take the previous balance to this one.
+  // A jump means a row was missed (or misread); it is reported on import rather than silently imported.
+  let prevBalance = null, prevDate = null;
+  const breaks = [];
   for(const line of lines){
     const upper = line.toUpperCase();
     if(SB_STOP_MARKERS.some(mk=>upper.includes(mk))){ current = null; continue; }
@@ -974,6 +1050,12 @@ function parseStandardBankAfrikaans(fullText, bank){
       // pick the year matching whichever end of the statement period this month belongs to
       const year = (month === years.endMonth) ? years.endYear : (month === years.startMonth) ? years.startYear : years.endYear;
       const date = `${year}-${month}-${day}`;
+      const balance = parseAmount(m[5]);
+      if(prevBalance !== null && balance !== null){
+        const gap = round2(balance - (prevBalance + amt));
+        if(Math.abs(gap) >= 0.005) breaks.push({from:prevDate, to:date, gap});
+      }
+      prevBalance = balance; prevDate = date;
       const {category, taxLabel} = categorise(rawDesc);
       current = {id:idGen(), date, desc:rawDesc, descEN:translateDesc(rawDesc), bank, amount:amt, category, taxLabel};
       out.push(current);
@@ -985,7 +1067,70 @@ function parseStandardBankAfrikaans(fullText, bank){
       current.taxLabel = recat.taxLabel;
     }
   }
+  out.reconcile = {checked:true, ok:breaks.length===0, breaks,
+    problem: breaks.map(b=>`running balance is out by ${fmtR(b.gap)} between ${b.from} and ${b.to}, so a row there is probably missing`).join('; ')};
   return out;
+}
+
+
+// Standard Bank credit card statements (English, two-column "Transaction details" layout).
+// Debits are printed positive and credits negative, so signs are flipped to match bank-account CSVs
+// (spend negative, payments positive). Balance / closing-balance lines are not transactions.
+const MONTHS_EN = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+// Statement-summary wording that can sit next to a date and an amount but is never a transaction.
+const CARD_NOT_TRANSACTION = /payment due|minimum (payment|amount)|total amount due|amount due|interest rate|credit limit|available (credit|balance)|statement date/i;
+function isStandardBankCard(fullText){
+  const t = fullText.toUpperCase();
+  return t.includes('CREDIT LIMIT') && t.includes('TRANSACTION DETAILS') && t.includes('CLOSING BALANCE');
+}
+function parseStandardBankCard(fullText, bank){
+  const out = [];
+  const re = /(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2})\s+(.+?)\s+(-?\d[\d,]*\.\d{2})(?:\s+(-?\d[\d,]*\.\d{2}))?(?=\s|$)/g;
+  const seen = fullText.indexOf('Transaction details');
+  const body = seen >= 0 ? fullText.slice(seen) : fullText;
+  // The first balance brought forward and the last closing balance are kept so the import can check
+  // the statement reconciles (a stray non-transaction line or a misread column shows up as a difference).
+  let opening = null, closing = null;
+  for(const line of body.split('\n')){
+    if(closing !== null) break; // the closing balance ends the transaction table; anything after it is summary or footer
+    // On real statements the closing balance line has no date ("Closing balance   1,234.56"), so the
+    // transaction pattern below never sees it; the brought-forward line is dated, but accept either form.
+    const undated = line.match(/^\s*(closing balance|balance brought forward)\s+(-?\d[\d,]*\.\d{2}-?)\s*$/i);
+    if(undated){
+      const v = parseAmount(undated[2]);
+      if(/closing/i.test(undated[1])) closing = v; else if(opening === null) opening = v;
+      continue;
+    }
+    for(const m of line.matchAll(re)){
+      const mon = MONTHS_EN[m[2].toLowerCase()];
+      if(!mon) continue;
+      const desc = m[4].replace(/\s{2,}/g,' ').trim();
+      if(/balance brought forward|opening balance/i.test(desc)){
+        if(opening === null) opening = parseAmount(m[6] || m[5]);
+        continue;
+      }
+      if(/closing balance/i.test(desc)){ closing = parseAmount(m[6] || m[5]); continue; }
+      if(/balance carried forward/i.test(desc)) continue; // page-break running total, not a transaction
+      if(CARD_NOT_TRANSACTION.test(desc)) continue;
+      // foreign-currency purchases print the foreign amount first and the rand amount second
+      const raw = parseAmount(m[6] || m[5]);
+      if(raw === null) continue;
+      const {category, taxLabel} = categorise(desc);
+      out.push({id:idGen(), date:`20${m[3]}-${mon}-${m[1].padStart(2,'0')}`, desc, descEN:desc, bank, amount:-raw, category, taxLabel});
+    }
+  }
+  out.reconcile = reconcileCard(out, opening, closing);
+  return out;
+}
+
+// Card balances are amounts owed, so closing = brought forward + spend - payments = opening - sum(amount).
+function reconcileCard(rows, opening, closing){
+  if(opening === null || closing === null) return {checked:false, problem:'balance brought forward or closing balance not found, so the rows could not be checked'};
+  const sum = rows.reduce((s,t)=>s+t.amount, 0);
+  const expected = round2(opening - sum);
+  const difference = round2(closing - expected);
+  return {checked:true, ok: Math.abs(difference) < 0.005, opening, closing, expected, difference,
+    problem:`imported rows leave ${fmtR(difference)} unaccounted for (closing balance ${fmtR(closing)}, rows give ${fmtR(expected)})`};
 }
 
 async function handlePDFFile(file, bank){
@@ -1008,6 +1153,10 @@ async function handlePDFFile(file, bank){
     return parseStandardBankAfrikaans(fullText, bank);
   }
 
+  if(isStandardBankCard(fullText)){
+    return parseStandardBankCard(fullText, bank);
+  }
+
   const lines = fullText.split('\n');
   const out = [];
   const dateRe = /(\d{2}[\/\-.]\d{2}[\/\-.]\d{2,4}|\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{2,4})/;
@@ -1028,36 +1177,62 @@ async function handlePDFFile(file, bank){
     let desc = line.replace(dateRe,'').replace(new RegExp(amtRe.source,'gi'),'').trim();
     desc = desc.replace(/\s{2,}/g,' ');
     if(!desc) continue;
+    if(/balance brought forward|closing balance|opening balance|saldo oorgebring/i.test(desc)) continue;
     const {category, taxLabel} = categorise(desc);
     out.push({id:idGen(), date:parseDate(dm[1]), desc, descEN:desc, bank, amount:amt, category, taxLabel});
   }
   return out;
 }
 
+function txnKey(t){ return [t.bank,t.date,String(t.desc).replace(/\s+/g,' ').trim().toUpperCase(),Number(t.amount).toFixed(2)].join('|'); }
+
 async function processFiles(fileList, bank){
   const newTxns = [];
-  let skipped = 0;
+  let skipped = 0, dupes = 0;
+  const unsupported = [];
+  const unreconciled = [];
+  // Multiset of rows already held: a repeat inside one file is a genuine repeat purchase, but a row
+  // already imported from an earlier (overlapping) statement is a duplicate and is dropped.
+  const held = {};
+  transactions.forEach(t=>{ const k=txnKey(t); held[k]=(held[k]||0)+1; });
   for(const file of fileList){
     let parsed = [];
-    if(file.name.toLowerCase().endsWith('.csv')){
+    const lname = file.name.toLowerCase();
+    if(lname.endsWith('.csv')){
       parsed = await handleCSVFile(file, bank);
-    }else if(file.name.toLowerCase().endsWith('.pdf')){
+    }else if(lname.endsWith('.pdf')){
       parsed = await handlePDFFile(file, bank);
       if(parsed === null){ skipped++; continue; }
+    }else{
+      unsupported.push(file.name); continue;
     }
-    newTxns.push(...parsed);
-    files.push({name:file.name, bank, count:parsed.length, importedAt:new Date().toISOString()});
+    if(parsed.reconcile && !(parsed.reconcile.checked && parsed.reconcile.ok)) unreconciled.push(`${file.name}: ${parsed.reconcile.problem}`);
+    const budget = Object.assign({}, held);
+    const fresh = [];
+    for(const t of parsed){
+      const k = txnKey(t);
+      if(budget[k] > 0){ budget[k]--; dupes++; } else fresh.push(t);
+    }
+    fresh.forEach(t=>{ const k=txnKey(t); held[k]=(held[k]||0)+1; });
+    newTxns.push(...fresh);
+    files.push({name:file.name, bank, count:fresh.length, importedAt:new Date().toISOString()});
   }
   transactions.push(...newTxns);
   await saveTransactions();
   await saveFiles();
   renderAll();
-  if(skipped>0){
-    alert(`${skipped} file(s) were skipped — no password was entered (or it kept failing). Drop the file in again to retry.`);
+  const today = new Date().toISOString().slice(0,10);
+  const future = newTxns.filter(t=>t.date > today).length;
+  const notes = [];
+  if(skipped>0) notes.push(`${skipped} file(s) were skipped — no password was entered (or it kept failing). Drop the file in again to retry.`);
+  if(unsupported.length) notes.push(`Not imported (only .csv and .pdf are supported): ${unsupported.join(', ')}. Save Excel (.xls/.xlsx) statements as CSV first.`);
+  if(unreconciled.length) notes.push(`Statement doesn't reconcile. Check the imported rows against the statement:\n${unreconciled.join('\n')}`);
+  if(dupes>0) notes.push(`${dupes} row(s) were already imported from an earlier statement and were skipped.`);
+  if(future>0) notes.push(`${future} imported row(s) are dated in the future — check the year in the source file.`);
+  if(newTxns.length===0 && skipped===0 && dupes===0 && unsupported.length===0 && unreconciled.length===0 && fileList.length>0){
+    notes.push('No transactions could be detected in that file. PDF layouts vary a lot between banks — you can still add rows manually, or try exporting a CSV from your bank\'s app/site instead, which parses more reliably.');
   }
-  if(newTxns.length===0 && skipped===0 && fileList.length>0){
-    alert('No transactions could be detected in that file. PDF layouts vary a lot between banks — you can still add rows manually, or try exporting a CSV from your bank\'s app/site instead, which parses more reliably.');
-  }
+  if(notes.length) alert(notes.join('\n\n'));
 }
 
 /* ---------------- RENDER ---------------- */
@@ -1222,28 +1397,165 @@ function renderTax(){
   `;
 }
 
-function renderRental(){
-  const income = transactions.filter(t=>t.category==='Rental Income').reduce((s,t)=>s+Math.abs(t.amount),0);
-  const expenseMap = {};
-  let expenseTotal = 0;
-  RENTAL_EXPENSE_CATEGORIES.forEach(cat=>{
-    const total = transactions.filter(t=>t.category===cat).reduce((s,t)=>s+Math.abs(t.amount),0);
-    if(total>0){ expenseMap[cat]=total; expenseTotal+=total; }
+/* ---------------- RENTAL APPORTIONMENT ---------------- */
+function treatmentFor(cat){
+  return (rentalSettings.treatment && rentalSettings.treatment[cat]) || (RENTAL_COST_MODEL[cat] && RENTAL_COST_MODEL[cat].treatment) || 'none';
+}
+
+// Cottage share of costs that serve the whole property: area ratio x months held out for letting / 12.
+function rentalShare(){
+  const c = parseFloat(rentalSettings.cottageArea) || 0;
+  const p = parseFloat(rentalSettings.propertyArea) || 0;
+  let m = parseFloat(rentalSettings.monthsLet);
+  if(isNaN(m)) m = 12;
+  m = Math.min(12, Math.max(0, m));
+  const areaRatio = (p>0 && c>0) ? Math.min(1, c/p) : 0;
+  return {areaRatio, months:m, share: areaRatio * m / 12, ready: p>0 && c>0};
+}
+
+const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
+
+// inRange: optional (txn)=>bool to limit the dates counted. opts.manual=false leaves out the typed-in bond interest.
+function computeRental(inRange, opts){
+  opts = opts || {};
+  const inR = inRange || (()=>true);
+  const sh = rentalShare();
+  const income = transactions.filter(t=>t.category==='Rental Income' && inR(t)).reduce((s,t)=>s+Math.abs(t.amount),0);
+  const rows = [];
+  Object.keys(RENTAL_COST_MODEL).forEach(cat=>{
+    // expenses are negative amounts; a refund (positive) in the same category nets off
+    const paid = -transactions.filter(t=>t.category===cat && inR(t)).reduce((s,t)=>s+t.amount,0);
+    if(round2(paid)===0) return;
+    const treatment = treatmentFor(cat);
+    const factor = treatment==='apportion' ? sh.share : treatment==='full' ? 1 : 0;
+    rows.push({label:cat, category:cat, line:RENTAL_COST_MODEL[cat].line, treatment, paid:round2(paid), factor, deductible: round2(paid*factor)});
   });
-  const net = income - expenseTotal;
+  const bond = parseFloat(rentalSettings.bondInterest) || 0;
+  if(opts.manual!==false && bond>0){
+    rows.push({label:'Bond interest (lender certificate)', category:null, line:'interest', treatment:'apportion', paid:round2(bond), factor:sh.share, deductible: round2(bond*sh.share)});
+  }
+  const byLine = {};
+  rows.forEach(r=>{ byLine[r.line] = round2((byLine[r.line]||0) + r.deductible); });
+  const totalDeduction = round2(Object.values(byLine).reduce((a,b)=>a+b,0));
+  const needsAreas = !sh.ready && rows.some(r=>r.treatment==='apportion' && r.paid!==0);
+  const excluded = rows.filter(r=>r.treatment==='none');
+  return {income, rows, byLine, totalDeduction, net: round2(income - totalDeduction), share: sh, needsAreas, excluded};
+}
+
+function saveRentalInputs(){
+  rentalSettings.cottageArea = document.getElementById('rs-cottage').value;
+  rentalSettings.propertyArea = document.getElementById('rs-property').value;
+  rentalSettings.monthsLet = document.getElementById('rs-months').value;
+  rentalSettings.bondInterest = document.getElementById('rs-bond').value;
+  rentalSettings.basisNote = document.getElementById('rs-note').value;
+  saveRentalSettings();
+  renderRentalResult();
+}
+
+function setTreatment(cat, val){
+  rentalSettings.treatment[cat] = val;
+  saveRentalSettings();
+  renderRentalTreatments();
+  renderRentalResult();
+}
+
+function resetTreatments(){
+  rentalSettings.treatment = {};
+  saveRentalSettings();
+  renderRentalTreatments();
+  renderRentalResult();
+}
+
+function renderRentalTreatments(){
+  const sums = {};
+  transactions.forEach(t=>{ sums[t.category] = (sums[t.category]||0) - t.amount; });
+  const opts = [['apportion','Apportion (cottage share)'],['full','100% cottage'],['none','Not a rental deduction']];
+  document.getElementById('rs-treatments').innerHTML = `
+    <div class="table-wrap" style="max-height:none;">
+      <table>
+        <thead><tr><th>Category</th><th>Treatment</th><th>ITR12 line</th><th style="text-align:right;">Paid</th></tr></thead>
+        <tbody>
+          ${Object.keys(RENTAL_COST_MODEL).map(cat=>{
+            const m = RENTAL_COST_MODEL[cat];
+            const cur = treatmentFor(cat);
+            const changed = cur !== m.treatment;
+            const paid = sums[cat] || 0;
+            return `<tr>
+              <td>${escapeHtml(cat)}<div style="font-size:10.5px;color:var(--ink-faint);margin-top:2px;">${escapeHtml(m.note)}</div></td>
+              <td><select onchange="setTreatment('${cat.replace(/'/g,"\\'")}', this.value)" style="padding:4px;font-size:12px;${changed?'border-color:var(--gold);':''}">
+                ${opts.map(([v,l])=>`<option value="${v}" ${v===cur?'selected':''}>${l}${v===m.treatment?' (default)':''}</option>`).join('')}
+              </select></td>
+              <td>${ITR12_RENTAL_LINES[m.line]}</td>
+              <td class="amount">${paid ? fmtR(paid) : ''}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:8px;"><button class="btn secondary" onclick="resetTreatments()" style="font-size:12px;padding:5px 10px;">Reset all to defaults</button></div>`;
+}
+
+function renderRentalSettings(){
+  document.getElementById('rs-cottage').value = rentalSettings.cottageArea || '';
+  document.getElementById('rs-property').value = rentalSettings.propertyArea || '';
+  document.getElementById('rs-months').value = rentalSettings.monthsLet===undefined ? '12' : rentalSettings.monthsLet;
+  document.getElementById('rs-bond').value = rentalSettings.bondInterest || '';
+  document.getElementById('rs-note').value = rentalSettings.basisNote || '';
+  renderRentalTreatments();
+}
+
+function renderRental(){
+  renderRentalSettings();
+  renderRentalResult();
+}
+
+function renderRentalResult(){
+  const r = computeRental();
+  const sh = r.share;
+  const pct = (sh.share*100);
+  document.getElementById('rs-ratio').innerHTML = sh.ready
+    ? `Cottage share of whole-property costs: <b class="mono">${pct.toFixed(4)}%</b> <span style="color:var(--ink-faint);">(${(parseFloat(rentalSettings.cottageArea)||0)} / ${(parseFloat(rentalSettings.propertyArea)||0)} m² × ${sh.months}/12 months)</span>`
+    : `Enter the cottage area and the total property area to apportion shared costs.`;
+
+  // warnings
+  const warns = [];
+  if(r.needsAreas) warns.push(`Costs marked <b>Apportion</b> are counted as R 0.00 until you enter both areas above.`);
+  const ho = parseFloat(homeOffice.homeArea) || 0;
+  const rp = parseFloat(rentalSettings.propertyArea) || 0;
+  if(ho>0 && rp>0 && Math.abs(ho-rp) > 0.001) warns.push(`Work from home uses a total area of ${ho} m² but this page uses ${rp} m². Use the same basis for both, and keep the two areas separate so no cost is claimed twice.`);
+  if(r.excluded.length) warns.push(`Not included in the deduction: ${r.excluded.map(x=>`${escapeHtml(x.label)} (${fmtR(x.paid)})`).join(', ')}. Re-tag or change the treatment above if part of this belongs to the cottage.`);
+  document.getElementById('rs-warnings').innerHTML = warns.map(w=>`<div class="disclaimer" style="margin:8px 0 0;">${w}</div>`).join('');
+
   const el = document.getElementById('rental-receipt');
-  if(income===0 && expenseTotal===0){
+  if(r.income===0 && r.rows.length===0){
     el.innerHTML = `<div class="empty"><div class="icon">🏠</div>No rental transactions tagged yet. In the Transactions tab, set the category on rent deposits to <b>Rental Income</b>, and property costs to the matching <b>Rental – …</b> category.</div>`;
     return;
   }
-  el.innerHTML = `
+  const lineOrder = ['rates_elec','insurance','interest','levies','repairs','agent','other'];
+  const detail = r.rows.length ? `
+    <div class="table-wrap" style="max-height:none;margin-bottom:16px;">
+      <table>
+        <thead><tr><th>Cost</th><th>Treatment</th><th style="text-align:right;">Paid</th><th style="text-align:right;">Share</th><th style="text-align:right;">Deduction</th></tr></thead>
+        <tbody>
+          ${r.rows.map(x=>`<tr>
+            <td>${escapeHtml(x.label)}<div style="font-size:10.5px;color:var(--ink-faint);">${ITR12_RENTAL_LINES[x.line]}</div></td>
+            <td>${x.treatment==='apportion'?'Apportioned':x.treatment==='full'?'100% cottage':'Excluded'}</td>
+            <td class="amount">${fmtR(x.paid)}</td>
+            <td class="amount">${(x.factor*100).toFixed(x.treatment==='apportion'?4:0)}%</td>
+            <td class="amount">${fmtR(x.deductible)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : '';
+  el.innerHTML = detail + `
     <div class="receipt">
       <h4>Rental Income Summary</h4>
-      <div class="sub">FROM IMPORTED BANK RECORDS</div>
-      <div class="line"><span>Rental income received</span><span>${fmtR(income)}</span></div>
-      ${Object.entries(expenseMap).map(([cat,v])=>`<div class="line"><span>${cat.replace('Rental - ','')}</span><span>-${fmtR(v).replace('R ','R ')}</span></div>`).join('')}
-      <div class="line total"><span>${net>=0?'Net rental income':'Net rental loss'}</span><span>${fmtR(net)}</span></div>
-      <div class="note">Declared under the rental income section of your ITR12. Keep proof of each expense (levy statements, insurance schedules, agent invoices, bond interest certificate) — SARS can ask for these even though they don't attach to the return itself. If this is a loss, note that ring-fencing rules can restrict offsetting it against other income; a tax practitioner can confirm how it applies to your situation.</div>
+      <div class="sub">COTTAGE SHARE ${sh.ready?pct.toFixed(4)+'%':'NOT SET'}${rentalSettings.basisNote?' · '+escapeHtml(rentalSettings.basisNote).toUpperCase():''}</div>
+      <div class="line"><span>Rental income</span><span>${fmtR(r.income)}</span></div>
+      ${lineOrder.filter(k=>r.byLine[k]).map(k=>`<div class="line"><span>${ITR12_RENTAL_LINES[k]}</span><span>-${fmtR(r.byLine[k])}</span></div>`).join('')}
+      <div class="line"><span>Total expenditure</span><span>-${fmtR(r.totalDeduction)}</span></div>
+      <div class="line total"><span>${r.net>=0?'Net rental income':'Net rental loss'}</span><span>${fmtR(r.net)}</span></div>
+      <div class="note">The expenditure lines match the ITR12 rental expenditure fields. Income is whatever is tagged Rental Income in your bank records, which is cash received. If you are entitled to income that has not been paid yet, add it, because tax is on the amount received or accrued, whichever comes first. Keep proof of each expense (levy statements, insurance schedules, agent invoices, bond interest certificate), because SARS can ask for them. If this is a loss, ring-fencing rules can restrict offsetting it against other income. A tax practitioner can confirm how that applies to you.</div>
     </div>
   `;
 }
@@ -1380,6 +1692,19 @@ function exportXLSX(){
   });
   const ws3 = XLSX.utils.json_to_sheet(Object.entries(taxMap).map(([Item,Total])=>({Item,'Total (R)':Total})));
   XLSX.utils.book_append_sheet(wb, ws3, 'Tax Summary');
+
+  const rr = computeRental();
+  if(rr.income!==0 || rr.rows.length){
+    const rentalRows = rr.rows.map(x=>({Cost:x.label, Treatment:x.treatment==='apportion'?'Apportioned':x.treatment==='full'?'100% cottage':'Excluded', 'ITR12 line':ITR12_RENTAL_LINES[x.line], 'Paid (R)':x.paid, 'Share (%)':Math.round(x.factor*1000000)/10000, 'Deduction (R)':x.deductible}));
+    rentalRows.push({});
+    rentalRows.push({Cost:'Rental income', 'Deduction (R)':rr.income});
+    rentalRows.push({Cost:'Total expenditure', 'Deduction (R)':rr.totalDeduction});
+    rentalRows.push({Cost:rr.net>=0?'Net rental income':'Net rental loss', 'Deduction (R)':rr.net});
+    rentalRows.push({Cost:'Cottage area (m2)', 'Deduction (R)':parseFloat(rentalSettings.cottageArea)||0});
+    rentalRows.push({Cost:'Total property area (m2)', 'Deduction (R)':parseFloat(rentalSettings.propertyArea)||0});
+    rentalRows.push({Cost:'Months held out for letting', 'Deduction (R)':rr.share.months});
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rentalRows), 'Rental');
+  }
 
   XLSX.writeFile(wb, `staatmaker-tax-summary-${new Date().toISOString().slice(0,10)}.xlsx`);
 }

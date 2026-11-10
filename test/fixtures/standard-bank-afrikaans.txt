@@ -1,0 +1,17 @@
+SYNTHETIC FIXTURE - fabricated descriptions, dates and amounts in the Standard Bank Afrikaans current account layout.
+Contains no real statement data.
+BANKSTAAT / BELASTINGFAKTUUR
+Staat van 13 Augustus 2024 tot 12 September 2024
+Staatfrekwensie: Maandeliks
+Maandeliks E-pos
+Besonderhede Diensgeld Debiete Krediete Datum Saldo
+SALDO OORGEBRING 08 13 1,000.00-
+KRUIDENIERS VOORBEELD ## 250.00- 08 14 1,250.00-
+SALARIS VOORBEELD MPY 5,000.00 08 25 3,750.00
+VERWYSING 12345
+OORTREKKING-DIENSGELD ## 20.00- 08 31 3,730.00
+VASTE MAANDELIKSE FOOI ## 115.00- 08 31 3,615.00
+Bladsy 1 van 2
+VERSEKERING VOORBEELD 400.00- 09 02 3,215.00
+FOOI ONMIDDELLIKE BETALING ## 10.00- 09 05 3,205.00
+Bladsy 2 van 2

@@ -48,6 +48,16 @@ Instead:
 5. Open a PR with the parser and the synthetic fixture (fixtures can live under a `test/fixtures/`
    folder — not committed elsewhere in the repo, and never containing real data).
 
+## Running the tests
+
+```bash
+node test/run.js
+```
+
+This loads the app script from `index.html` with a stubbed DOM and checks the tax brackets, rental
+apportionment, card-statement parsing and reconciliation, and import de-duplication. Add a case there
+(and a synthetic fixture under `test/fixtures/`) when you add or change a parser.
+
 ## Updating SARS figures
 
 Tax brackets, rebates, medical scheme fees tax credits, and the retirement annuity cap change every
