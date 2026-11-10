@@ -1,7 +1,15 @@
 # Contributing
 
-Thanks for considering it. This is a single-file app on purpose — `index.html` contains the markup,
-styles, and logic — so most contributions are a matter of editing that one file.
+Thanks for considering it. This is a small static app with no build step and no framework:
+
+- `index.html` — the markup
+- `styles.css` — all styles (colours are tokens on `:root`, redefined for dark mode)
+- `js/data.js` — shared state and reference data (categories, default rules, rental cost model)
+- `js/app.js` — storage, statement parsing, categorisation, tax and rental calculations, rendering
+- `js/main.js` — browser-only wiring (tabs, import dropzone, dialog, start-up)
+
+The scripts are plain classic scripts that share globals and load in that order. Keep anything that
+runs on page load in `js/main.js`, so the tests can load the other two with a stubbed DOM.
 
 ## Local development
 
@@ -35,9 +43,8 @@ Instead:
    node -e "
    global.window = {}; global.pdfjsLib = {GlobalWorkerOptions:{}};
    const fs = require('fs');
-   const html = fs.readFileSync('index.html','utf8');
-   const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].pop()[1];
-   const code = script.slice(0, script.indexOf('/* ---------------- EVENTS')).replace(/\bconst\b/g,'var').replace(/\blet\b/g,'var');
+   const script = fs.readFileSync('js/data.js','utf8') + '\n' + fs.readFileSync('js/app.js','utf8');
+   const code = script.replace(/\bconst\b/g,'var').replace(/\blet\b/g,'var');
    eval(code);
    rules = DEFAULT_RULES.map(([kw,cat,tax])=>({kw,cat,tax}));
    const fixture = fs.readFileSync('your-fixture.txt','utf8');
@@ -54,14 +61,14 @@ Instead:
 node test/run.js
 ```
 
-This loads the app script from `index.html` with a stubbed DOM and checks the tax brackets, rental
+This loads `js/data.js` and `js/app.js` with a stubbed DOM and checks the tax brackets, rental
 apportionment, card-statement parsing and reconciliation, and import de-duplication. Add a case there
 (and a synthetic fixture under `test/fixtures/`) when you add or change a parser.
 
 ## Updating SARS figures
 
 Tax brackets, rebates, medical scheme fees tax credits, and the retirement annuity cap change every
-Budget Speech (usually late February). These live in `TAX_YEAR_TABLES` in `index.html`. When a new
+Budget Speech (usually late February). These live in `TAX_YEAR_TABLES` in `js/app.js`. When a new
 tax year's figures are announced:
 
 1. Add a new entry keyed by the tax year's end-year (e.g. the 2028 tax year runs 1 Mar 2027 – 28 Feb
